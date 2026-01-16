@@ -4,12 +4,14 @@ import { getValidator, getValidatorIds } from "@/lib/validators/registry";
 import type { FeedValidationSummary, ValidationIssue } from "@/lib/validators/types";
 
 const MAX_ISSUES_RETURNED = 100;
+const MAX_VALID_RECORDS_STORED = 10000;
 
 export async function POST(request: Request): Promise<Response> {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const validatorId = formData.get("validator") as string | null;
+    const includeValidRecords = formData.get("includeValidRecords") === "true";
 
     if (!file) {
       return NextResponse.json(
@@ -55,6 +57,7 @@ export async function POST(request: Request): Promise<Response> {
     // Parse and validate
     const parsed = await parseFile(file);
     const issues: ValidationIssue[] = [];
+    const validRecords: Record<string, unknown>[] = [];
     let totalRows = 0;
     let validRows = 0;
     let invalidRows = 0;
@@ -68,6 +71,10 @@ export async function POST(request: Request): Promise<Response> {
 
       if (result.isValid) {
         validRows++;
+        // Store valid normalized records for export
+        if (includeValidRecords && validRecords.length < MAX_VALID_RECORDS_STORED && result.data) {
+          validRecords.push(result.data);
+        }
       } else {
         invalidRows++;
       }
@@ -76,7 +83,6 @@ export async function POST(request: Request): Promise<Response> {
         if (issue.severity === "error") errorCount++;
         if (issue.severity === "warning") warningCount++;
 
-        // Limit stored issues to prevent memory issues with large files
         if (issues.length < MAX_ISSUES_RETURNED) {
           issues.push(issue);
         }
@@ -92,6 +98,7 @@ export async function POST(request: Request): Promise<Response> {
       errorCount,
       warningCount,
       issues,
+      validRecords: includeValidRecords ? validRecords : undefined,
     };
 
     return NextResponse.json({
@@ -108,6 +115,7 @@ export async function POST(request: Request): Promise<Response> {
       },
       summary,
       truncated: errorCount + warningCount > MAX_ISSUES_RETURNED,
+      validRecordsTruncated: includeValidRecords && validRows > MAX_VALID_RECORDS_STORED,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -127,6 +135,7 @@ export async function GET(): Promise<Response> {
       description: v.description,
       version: v.version,
       supportedFormats: v.supportedFormats,
+      fieldAliases: v.fieldAliases,
     } : null;
   }).filter(Boolean);
 

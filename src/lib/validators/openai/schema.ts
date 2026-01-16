@@ -1,5 +1,12 @@
 import { z } from "zod";
-import type { ValidatorModule, RecordValidationResult, ValidationIssue } from "../types";
+import type {
+  ValidatorModule,
+  RecordValidationResult,
+  ValidationIssue,
+  FieldAliases,
+  FieldNormalizers,
+} from "../types";
+import { normalizeRecord } from "../types";
 
 // ISO 4217 currency codes (common ones)
 const currencyCodes = [
@@ -17,16 +24,16 @@ const countryCodes = [
 const availabilityValues = ["in_stock", "out_of_stock", "pre_order", "backorder", "unknown"] as const;
 
 const urlSchema = z.string().url().max(2048);
-const httpsUrlSchema = z.string().url().refine(
-  (url) => url.startsWith("https://"),
-  { message: "URL should use HTTPS" }
-);
 
-// Price format: number with optional currency code
+// Price format: accepts multiple formats after normalization
 const priceSchema = z.union([
   z.number().positive(),
-  z.string().regex(/^\d+(\.\d{1,2})?\s?[A-Z]{3}$/, "Price must be a number or 'amount CUR' format"),
-]);
+  z.string().min(1),
+]).refine((val) => {
+  if (typeof val === "number") return val > 0;
+  // Accept "123.45 EUR" or "123.45" format (after normalization)
+  return /^\d+(\.\d{1,2})?\s?[A-Z]{0,3}$/.test(val);
+}, { message: "Invalid price format" });
 
 // ISO 8601 date format
 const dateSchema = z.string().regex(
@@ -34,10 +41,19 @@ const dateSchema = z.string().regex(
   "Date must be in ISO 8601 format"
 );
 
+// Boolean that accepts various string formats
+const booleanSchema = z.union([
+  z.boolean(),
+  z.enum(["true", "false", "TRUE", "FALSE", "True", "False", "1", "0"]),
+]).transform((v) => {
+  if (typeof v === "boolean") return v;
+  return ["true", "TRUE", "True", "1"].includes(v);
+});
+
 export const openAIFeedSchema = z.object({
   // OpenAI Control Flags (Required)
-  is_eligible_search: z.union([z.boolean(), z.enum(["true", "false"])]).transform(v => v === true || v === "true"),
-  is_eligible_checkout: z.union([z.boolean(), z.enum(["true", "false"])]).transform(v => v === true || v === "true"),
+  is_eligible_search: booleanSchema,
+  is_eligible_checkout: booleanSchema,
 
   // Basic Product Data (Required)
   item_id: z.string().min(1).max(100),
@@ -45,7 +61,7 @@ export const openAIFeedSchema = z.object({
     (title) => title !== title.toUpperCase() || title.length <= 10,
     { message: "Avoid using all-caps for titles" }
   ),
-  description: z.string().min(1).max(5000),
+  description: z.string().max(5000),
   url: urlSchema,
   brand: z.string().min(1).max(70),
 
@@ -62,12 +78,12 @@ export const openAIFeedSchema = z.object({
 
   // Media (Required)
   image_url: urlSchema,
-  additional_image_urls: z.string().optional(), // comma-separated
+  additional_image_urls: z.string().optional(),
 
   // Variants
   group_id: z.string().max(70).optional(),
-  listing_has_variations: z.union([z.boolean(), z.enum(["true", "false"])]).optional(),
-  size: z.string().max(20).optional(),
+  listing_has_variations: booleanSchema.optional(),
+  size: z.string().max(100).optional(),
   color: z.string().max(40).optional(),
   size_system: z.string().optional(),
   gender: z.enum(["male", "female", "unisex"]).optional(),
@@ -80,12 +96,15 @@ export const openAIFeedSchema = z.object({
 
   // Returns Policy (Required)
   return_policy: urlSchema,
-  return_window: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]).transform(v => Number(v)),
-  accepts_returns: z.union([z.boolean(), z.enum(["true", "false"])]).optional(),
-  accepts_exchanges: z.union([z.boolean(), z.enum(["true", "false"])]).optional(),
+  return_window: z.union([
+    z.number().int().positive(),
+    z.string().regex(/^\d+$/),
+  ]).transform((v) => Number(v)),
+  accepts_returns: booleanSchema.optional(),
+  accepts_exchanges: booleanSchema.optional(),
 
   // Geo Targeting (Required)
-  target_countries: z.string().min(2), // comma-separated ISO codes
+  target_countries: z.string().min(2),
   store_country: z.enum(countryCodes),
 
   // Item Information (Optional)
@@ -95,11 +114,12 @@ export const openAIFeedSchema = z.object({
   dimensions: z.string().optional(),
   weight: z.string().optional(),
   age_group: z.enum(["newborn", "infant", "toddler", "kids", "adult"]).optional(),
+  inventory_quantity: z.union([z.number(), z.string()]).optional(),
 
   // Fulfillment (Optional)
   shipping_price: priceSchema.optional(),
   delivery_estimate: z.string().optional(),
-  is_digital: z.union([z.boolean(), z.enum(["true", "false"])]).optional(),
+  is_digital: booleanSchema.optional(),
 
   // Performance (Optional)
   popularity_score: z.union([z.number(), z.string().regex(/^\d+(\.\d+)?$/)]).optional(),
@@ -114,7 +134,7 @@ export const openAIFeedSchema = z.object({
   review_count: z.union([z.number().int().nonnegative(), z.string().regex(/^\d+$/)]).optional(),
   star_rating: z.union([
     z.number().min(0).max(5),
-    z.string().regex(/^[0-5](\.\d+)?$/)
+    z.string().regex(/^[0-5](\.\d+)?$/),
   ]).optional(),
   q_and_a: z.string().optional(),
 
@@ -123,7 +143,6 @@ export const openAIFeedSchema = z.object({
   relationship_type: z.string().optional(),
 }).refine(
   (data) => {
-    // If checkout is enabled, privacy policy and TOS are required
     if (data.is_eligible_checkout) {
       return !!data.seller_privacy_policy && !!data.seller_tos && !!data.store_name;
     }
@@ -132,30 +151,136 @@ export const openAIFeedSchema = z.object({
   { message: "Checkout-enabled products require seller_privacy_policy, seller_tos, and store_name" }
 ).refine(
   (data) => {
-    // If pre_order, availability_date is required
     if (data.availability === "pre_order") {
       return !!data.availability_date;
     }
     return true;
   },
   { message: "Pre-order products require availability_date" }
-).refine(
-  (data) => {
-    // sale_price must be less than or equal to price
-    if (data.sale_price !== undefined && data.price !== undefined) {
-      const price = typeof data.price === "number" ? data.price : parseFloat(data.price);
-      const salePrice = typeof data.sale_price === "number" ? data.sale_price : parseFloat(data.sale_price);
-      return salePrice <= price;
-    }
-    return true;
-  },
-  { message: "sale_price must be less than or equal to price" }
 );
 
 export type OpenAIFeedRecord = z.infer<typeof openAIFeedSchema>;
 
+// Field aliases: map common CSV column names to canonical OpenAI field names
+const fieldAliases: FieldAliases = {
+  // Control flags
+  is_eligible_search: ["enable_search", "eligible_search", "search_enabled", "searchable"],
+  is_eligible_checkout: ["enable_checkout", "eligible_checkout", "checkout_enabled", "buyable"],
+
+  // Basic product data
+  item_id: ["id", "product_id", "sku", "item_code", "article_id"],
+  title: ["name", "product_name", "product_title", "item_name"],
+  description: ["desc", "product_description", "long_description", "body"],
+  url: ["link", "product_url", "product_link", "page_url", "canonical_url"],
+  brand: ["manufacturer", "brand_name", "vendor"],
+
+  // Pricing
+  price: ["regular_price", "base_price", "list_price"],
+  sale_price: ["special_price", "discount_price", "promo_price"],
+
+  // Availability
+  availability: ["stock_status", "stock"],
+
+  // Media
+  image_url: ["image_link", "image", "main_image", "primary_image", "picture"],
+  additional_image_urls: ["additional_images", "extra_images", "gallery"],
+
+  // Variants
+  group_id: ["item_group_id", "parent_id", "variant_group", "product_group"],
+  listing_has_variations: ["has_variants", "has_variations", "is_variant"],
+
+  // Merchant info
+  store_name: ["seller_name", "merchant_name", "shop_name"],
+
+  // Geo
+  target_countries: ["countries", "ship_to_countries", "available_countries"],
+  store_country: ["country", "merchant_country", "seller_country"],
+};
+
+// Normalizers: transform values to canonical format before validation
+const fieldNormalizers: FieldNormalizers = {
+  // Normalize price: "63,00 EUR" -> "63.00 EUR"
+  price: (value) => {
+    if (typeof value !== "string") return value;
+    return value.replace(/(\d+),(\d{2})(\s|$|[A-Z])/, "$1.$2$3").trim();
+  },
+
+  sale_price: (value) => {
+    if (typeof value !== "string") return value;
+    return value.replace(/(\d+),(\d{2})(\s|$|[A-Z])/, "$1.$2$3").trim();
+  },
+
+  shipping_price: (value) => {
+    if (typeof value !== "string") return value;
+    return value.replace(/(\d+),(\d{2})(\s|$|[A-Z])/, "$1.$2$3").trim();
+  },
+
+  // Normalize availability: "in stock" -> "in_stock"
+  availability: (value) => {
+    if (typeof value !== "string") return value;
+    const normalized = value.toLowerCase().trim().replace(/\s+/g, "_");
+    const mapping: Record<string, string> = {
+      "in_stock": "in_stock",
+      "instock": "in_stock",
+      "available": "in_stock",
+      "out_of_stock": "out_of_stock",
+      "outofstock": "out_of_stock",
+      "unavailable": "out_of_stock",
+      "sold_out": "out_of_stock",
+      "pre_order": "pre_order",
+      "preorder": "pre_order",
+      "pre-order": "pre_order",
+      "backorder": "backorder",
+      "back_order": "backorder",
+      "back-order": "backorder",
+    };
+    return mapping[normalized] ?? normalized;
+  },
+
+  // Normalize return_window: "14 days" -> "14"
+  return_window: (value) => {
+    if (typeof value === "number") return value;
+    if (typeof value !== "string") return value;
+    const match = value.match(/^(\d+)/);
+    return match ? match[1] : value;
+  },
+
+  // Normalize condition
+  condition: (value) => {
+    if (typeof value !== "string") return value;
+    const normalized = value.toLowerCase().trim();
+    const mapping: Record<string, string> = {
+      "new": "new",
+      "nuovo": "new",
+      "neuf": "new",
+      "neu": "new",
+      "refurbished": "refurbished",
+      "ricondizionato": "refurbished",
+      "used": "used",
+      "usato": "used",
+    };
+    return mapping[normalized] ?? normalized;
+  },
+
+  // Normalize description: handle empty/null
+  description: (value) => {
+    if (value === "" || value === null || value === undefined) return "";
+    return String(value);
+  },
+};
+
+// Default values for fields that can have sensible defaults
+const defaultValues: Record<string, unknown> = {
+  target_countries: "IT",
+  store_country: "IT",
+  description: "",
+};
+
 function validateRecord(record: Record<string, unknown>, row: number): RecordValidationResult {
-  const result = openAIFeedSchema.safeParse(record);
+  // Apply normalization before validation
+  const normalized = normalizeRecord(record, fieldAliases, fieldNormalizers, defaultValues);
+
+  const result = openAIFeedSchema.safeParse(normalized);
 
   if (result.success) {
     return {
@@ -163,6 +288,7 @@ function validateRecord(record: Record<string, unknown>, row: number): RecordVal
       isValid: true,
       issues: [],
       data: result.data as Record<string, unknown>,
+      normalized,
     };
   }
 
@@ -176,13 +302,14 @@ function validateRecord(record: Record<string, unknown>, row: number): RecordVal
         return (obj as Record<string, unknown>)[key as string];
       }
       return undefined;
-    }, record),
+    }, normalized),
   }));
 
   return {
     row,
     isValid: false,
     issues,
+    normalized,
   };
 }
 
@@ -190,8 +317,11 @@ export const openAIValidator: ValidatorModule<typeof openAIFeedSchema> = {
   id: "openai",
   name: "OpenAI Product Feed",
   description: "Validator for OpenAI Commerce product feeds (ChatGPT Shopping)",
-  version: "1.0.0",
+  version: "1.1.0",
   supportedFormats: ["jsonl", "csv"],
   schema: openAIFeedSchema,
+  fieldAliases,
+  fieldNormalizers,
+  defaultValues,
   validateRecord,
 };
