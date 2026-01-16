@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { extractHeadersClient } from "@/lib/parsers";
-import type { FeedValidationSummary } from "@/lib/validators/types";
+import { validateClient, getAvailableValidators, type ClientValidationResult } from "@/lib/validators/validate-client";
 
 // OpenAI target fields definition
 const OPENAI_TARGET_FIELDS = [
@@ -50,30 +50,13 @@ interface Validator {
   fieldAliases?: Record<string, string[]>;
 }
 
-interface ValidationResponse {
-  success: boolean;
-  validator: {
-    id: string;
-    name: string;
-    version: string;
-  };
-  file: {
-    name: string;
-    format: string;
-    size: number;
-  };
-  summary: FeedValidationSummary;
-  truncated: boolean;
-  validRecordsTruncated?: boolean;
-}
-
 export default function Home() {
   const [validators, setValidators] = useState<Validator[]>([]);
   const [selectedValidator, setSelectedValidator] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [result, setResult] = useState<ValidationResponse | null>(null);
+  const [result, setResult] = useState<ClientValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Field mapping dialog state
@@ -82,15 +65,12 @@ export default function Home() {
   const [customMappings, setCustomMappings] = useState<Record<string, string> | null>(null);
 
   useEffect(() => {
-    fetch("/api/validate")
-      .then((res) => res.json())
-      .then((data: { validators: Validator[] }) => {
-        setValidators(data.validators);
-        if (data.validators.length > 0) {
-          setSelectedValidator(data.validators[0].id);
-        }
-      })
-      .catch(() => setError("Failed to load validators"));
+    // Load validators client-side (no API call needed)
+    const availableValidators = getAvailableValidators() as Validator[];
+    setValidators(availableValidators);
+    if (availableValidators.length > 0) {
+      setSelectedValidator(availableValidators[0].id);
+    }
   }, []);
 
   const handleFileSelect = async (selectedFile: File) => {
@@ -129,26 +109,15 @@ export default function Home() {
     setResult(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("validator", selectedValidator);
-      formData.append("includeValidRecords", "true");
-      if (mappings) {
-        formData.append("customMappings", JSON.stringify(mappings));
-      }
-
-      const response = await fetch("/api/validate", {
-        method: "POST",
-        body: formData,
+      // 100% client-side validation - no data leaves the browser
+      const validationResult = await validateClient({
+        file,
+        validatorId: selectedValidator,
+        includeValidRecords: true,
+        customMappings: mappings,
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Validation failed");
-      }
-
-      setResult(data as ValidationResponse);
+      setResult(validationResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -448,16 +417,34 @@ export default function Home() {
           )}
         </div>
 
+        {/* Privacy Notice */}
+        <div className="text-center p-4 rounded-lg bg-green-500/5 border border-green-500/20">
+          <div className="flex items-center justify-center gap-2 text-green-400 text-sm">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span>100% Client-Side - Your data never leaves your browser. No cookies, no tracking.</span>
+          </div>
+        </div>
+
         {/* Footer */}
-        <footer className="text-center text-sm text-muted-foreground pt-8 border-t space-y-2">
-          <p className="font-medium">AI Feed Validator</p>
-          <p>
-            Validate product feeds for OpenAI, Google Shopping, Meta, and more.
+        <footer className="text-center text-sm text-muted-foreground pt-8 border-t border-white/10 space-y-3">
+          <p className="text-xs">
+            © {new Date().getFullYear()}{" "}
+            <a
+              href="https://www.alancurtisagency.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-primary transition-colors"
+            >
+              Alan Curtis / AC Agency
+            </a>
+            {" "}— MIT License
           </p>
-          <div className="flex items-center justify-center gap-4 pt-2">
+          <div className="flex items-center justify-center gap-4">
             <Badge variant="secondary">Next.js 16</Badge>
             <Badge variant="secondary">Zod 4</Badge>
-            <Badge variant="secondary">Bun</Badge>
+            <Badge variant="secondary">100% Client-Side</Badge>
           </div>
         </footer>
       </div>

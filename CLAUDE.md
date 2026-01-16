@@ -25,8 +25,14 @@ The validator system follows a modular registry pattern:
 Located in `src/lib/parsers/index.ts`:
 - Uses `papaparse` for CSV
 - Native JSON parsing for JSONL
-- `Bun.gunzipSync` for server-side gzip (API routes)
-- `DecompressionStream` for client-side gzip (browser)
+- `DecompressionStream` for gzip decompression (browser API)
+
+### Client-Side Validation
+
+All validation happens 100% client-side - no data leaves the browser:
+- `src/lib/validators/validate-client.ts` - Main validation function
+- Uses browser APIs only (no server-side dependencies)
+- Privacy-first: your data never touches any server
 
 ## Tech Stack
 
@@ -69,9 +75,10 @@ export const validator: ValidatorModule = {
 
 ## Important Files
 
-- `src/app/api/validate/route.ts` - Main validation API
+- `src/lib/validators/validate-client.ts` - Client-side validation logic
 - `src/lib/validators/openai/schema.ts` - OpenAI validator (reference implementation)
 - `src/components/field-mapping-dialog.tsx` - Manual field mapping UI
+- `src/app/page.tsx` - Main UI (100% client-side)
 
 ## Testing
 
@@ -84,6 +91,8 @@ When testing validation:
 
 ## Deployment
 
-Deployed on Vercel. The app uses:
-- Server-side: Bun runtime (for `Bun.gunzipSync`)
-- Client-side: Browser APIs (for `DecompressionStream`)
+Deployed on Vercel as a static site. The app is 100% client-side:
+- No server-side processing
+- No API routes
+- All validation happens in the browser
+- Privacy-first: user data never leaves their device

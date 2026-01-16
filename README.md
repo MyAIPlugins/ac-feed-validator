@@ -83,20 +83,20 @@ The validator automatically normalizes:
 ```
 src/
 ├── app/
-│   ├── api/validate/     # Validation API endpoint
-│   └── page.tsx          # Main UI
+│   └── page.tsx                    # Main UI (100% client-side)
 ├── components/
 │   ├── field-mapping-dialog.tsx
 │   ├── file-upload.tsx
 │   ├── validation-results.tsx
 │   └── validator-select.tsx
 └── lib/
-    ├── parsers/          # CSV/JSONL parsing with gzip support
+    ├── parsers/                    # CSV/JSONL parsing with gzip support
     └── validators/
-        ├── types.ts      # Shared validator types
-        ├── registry.ts   # Validator registry
-        └── openai/       # OpenAI validator module
-            └── schema.ts # Zod schema with aliases & normalizers
+        ├── types.ts                # Shared validator types
+        ├── registry.ts             # Validator registry
+        ├── validate-client.ts      # Client-side validation logic
+        └── openai/                 # OpenAI validator module
+            └── schema.ts           # Zod schema with aliases & normalizers
 ```
 
 ### Adding New Validators
@@ -123,15 +123,32 @@ Then register it in `src/lib/validators/registry.ts`.
 
 ## Deployment
 
-This app is ready for deployment on [Vercel](https://vercel.com):
+This app is deployed on [Vercel](https://vercel.com): **https://ac-feed-validator.vercel.app/**
 
+To deploy your own instance:
 ```bash
 vercel
 ```
 
+## Privacy
+
+🔒 **100% Client-Side Processing** - Your data never leaves your browser.
+
+- All validation happens locally in your browser
+- No data is sent to any server
+- No cookies or tracking
+- No analytics or data collection
+- Your feed files remain completely private
+
+This app is a static site with zero server-side processing. You can verify this by checking the source code or monitoring network requests.
+
+## Status
+
+⚠️ **Early Release (v1.0)** - This is the first version and may have bugs or unexpected behavior with feed generators different from the ones tested. More platform compatibility and improvements are coming soon as I need to use this tool for other clients with different e-commerce platforms.
+
 ## Attribution
 
-**Created by:** [Alan Curtis](https://www.alancurtisagency.com) (alan@alancurtis.it)
+**Created by:** [Alan Curtis](https://www.alancurtisagency.com)
 
 **Code written by:** [Claude Code](https://claude.ai/claude-code) (Anthropic's AI coding assistant)
 
@@ -153,5 +170,5 @@ Contributions are welcome! Please feel free to submit a Pull Request. Some areas
 ## Links
 
 - [OpenAI Feed Specification](https://developers.openai.com/commerce/specs/feed)
-- [AC Agency](https://www.alancurtisagency.com)
+- [AC Agency - Las Palmas de Gran Canaria](https://www.alancurtisagency.com)
 - [Report Issues](https://github.com/MyAIPlugins/ac-feed-validator/issues)
