@@ -313,6 +313,39 @@ function validateRecord(record: Record<string, unknown>, row: number): RecordVal
   };
 }
 
+// Validate WITHOUT applying normalizations - shows raw feed state
+function validateRecordRaw(record: Record<string, unknown>, row: number): RecordValidationResult {
+  const result = openAIFeedSchema.safeParse(record);
+
+  if (result.success) {
+    return {
+      row,
+      isValid: true,
+      issues: [],
+      data: result.data as Record<string, unknown>,
+    };
+  }
+
+  const issues: ValidationIssue[] = result.error.issues.map((issue) => ({
+    row,
+    field: issue.path.join("."),
+    message: issue.message,
+    severity: "error" as const,
+    value: issue.path.reduce((obj: unknown, key) => {
+      if (obj && typeof obj === "object" && key in obj) {
+        return (obj as Record<string, unknown>)[key as string];
+      }
+      return undefined;
+    }, record),
+  }));
+
+  return {
+    row,
+    isValid: false,
+    issues,
+  };
+}
+
 export const openAIValidator: ValidatorModule<typeof openAIFeedSchema> = {
   id: "openai",
   name: "OpenAI Product Feed",
@@ -324,4 +357,5 @@ export const openAIValidator: ValidatorModule<typeof openAIFeedSchema> = {
   fieldNormalizers,
   defaultValues,
   validateRecord,
+  validateRecordRaw,
 };

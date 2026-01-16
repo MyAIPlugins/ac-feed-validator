@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { FileUpload } from "@/components/file-upload";
 import { ValidatorSelect } from "@/components/validator-select";
 import { ValidationResults } from "@/components/validation-results";
 import { FieldMappingDialog } from "@/components/field-mapping-dialog";
+import { PreValidationDialog, type PreValidationProgress } from "@/components/pre-validation-dialog";
+import { ValidationProgressDialog } from "@/components/validation-progress-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { extractHeadersClient } from "@/lib/parsers";
-import { validateClient, getAvailableValidators, type ClientValidationResult } from "@/lib/validators/validate-client";
+import { validateClient, preValidateClient, getAvailableValidators, type ClientValidationResult, type PreValidationResult, type ValidationProgress } from "@/lib/validators/validate-client";
 
 // OpenAI target fields definition
 const OPENAI_TARGET_FIELDS = [
@@ -64,6 +66,18 @@ export default function Home() {
   const [sourceHeaders, setSourceHeaders] = useState<string[]>([]);
   const [customMappings, setCustomMappings] = useState<Record<string, string> | null>(null);
 
+  // Pre-validation state
+  const [preValidation, setPreValidation] = useState<PreValidationResult | null>(null);
+  const [isPreValidating, setIsPreValidating] = useState(false);
+  const [preValidationProgress, setPreValidationProgress] = useState<PreValidationProgress | null>(null);
+  const [showPreValidationDialog, setShowPreValidationDialog] = useState(false);
+  const preValidationAbortRef = useRef<AbortController | null>(null);
+
+  // Final validation progress state
+  const [validationProgress, setValidationProgress] = useState<ValidationProgress | null>(null);
+  const [showValidationDialog, setShowValidationDialog] = useState(false);
+  const validationAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     // Load validators client-side (no API call needed)
     const availableValidators = getAvailableValidators() as Validator[];
@@ -78,14 +92,51 @@ export default function Home() {
     setResult(null);
     setError(null);
     setCustomMappings(null);
+    setPreValidation(null);
 
     // Extract headers for mapping dialog
     try {
       const headers = await extractHeadersClient(selectedFile);
       setSourceHeaders(headers);
+
+      // Run pre-validation if we have a validator selected
+      if (selectedValidator) {
+        // Cancel any existing pre-validation
+        preValidationAbortRef.current?.abort();
+        preValidationAbortRef.current = new AbortController();
+
+        setIsPreValidating(true);
+        setShowPreValidationDialog(true);
+        setPreValidationProgress(null);
+
+        try {
+          const preResult = await preValidateClient({
+            file: selectedFile,
+            validatorId: selectedValidator,
+            signal: preValidationAbortRef.current.signal,
+            onProgress: (progress) => {
+              setPreValidationProgress(progress);
+            },
+          });
+          setPreValidation(preResult);
+        } catch (preErr) {
+          if (preErr instanceof Error && preErr.name !== "AbortError") {
+            console.error("Pre-validation failed:", preErr);
+          }
+        } finally {
+          setIsPreValidating(false);
+          setShowPreValidationDialog(false);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read file headers");
     }
+  };
+
+  const handleCancelPreValidation = () => {
+    preValidationAbortRef.current?.abort();
+    setShowPreValidationDialog(false);
+    setIsPreValidating(false);
   };
 
   const handleShowMapping = () => {
@@ -104,9 +155,15 @@ export default function Home() {
   const handleValidateWithMappings = async (mappings: Record<string, string> | null) => {
     if (!file || !selectedValidator) return;
 
+    // Cancel any existing validation
+    validationAbortRef.current?.abort();
+    validationAbortRef.current = new AbortController();
+
     setIsValidating(true);
     setError(null);
     setResult(null);
+    setShowValidationDialog(true);
+    setValidationProgress(null);
 
     try {
       // 100% client-side validation - no data leaves the browser
@@ -115,14 +172,27 @@ export default function Home() {
         validatorId: selectedValidator,
         includeValidRecords: true,
         customMappings: mappings,
+        signal: validationAbortRef.current.signal,
+        onProgress: (progress) => {
+          setValidationProgress(progress);
+        },
       });
 
       setResult(validationResult);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      if (err instanceof Error && err.name !== "AbortError") {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      }
     } finally {
       setIsValidating(false);
+      setShowValidationDialog(false);
     }
+  };
+
+  const handleCancelValidation = () => {
+    validationAbortRef.current?.abort();
+    setShowValidationDialog(false);
+    setIsValidating(false);
   };
 
   const handleValidate = () => {
@@ -164,6 +234,7 @@ export default function Home() {
     setError(null);
     setSourceHeaders([]);
     setCustomMappings(null);
+    setPreValidation(null);
   };
 
   const currentValidator = validators.find((v) => v.id === selectedValidator);
@@ -299,6 +370,78 @@ export default function Home() {
             </CardContent>
           </Card>
 
+          {/* Pre-validation Results */}
+          {(isPreValidating || preValidation) && (
+            <Card className="border-slate-500/50 bg-slate-500/5">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <svg className="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                  <CardTitle className="text-base">Pre-validation Results</CardTitle>
+                </div>
+                <CardDescription>
+                  {preValidation?.analyzedRows === preValidation?.totalRows
+                    ? `All ${preValidation?.totalRows.toLocaleString()} records analyzed`
+                    : preValidation
+                      ? `${preValidation.analyzedRows.toLocaleString()} of ${preValidation.totalRows.toLocaleString()} records (cancelled)`
+                      : "Analyzing..."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {preValidation && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="text-center p-3 rounded-lg bg-slate-500/10 border border-slate-500/20">
+                        <p className="text-2xl font-bold text-slate-200">{preValidation.totalRows.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Total Records</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                        <p className="text-2xl font-bold text-green-400">{preValidation.validRows.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Valid</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                        <p className="text-2xl font-bold text-red-400">{preValidation.invalidRows.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Invalid</p>
+                      </div>
+                    </div>
+                    {preValidation.rawIssues.length > 0 && (
+                      <div className="pt-2 border-t border-slate-500/20">
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {preValidation.rawIssues.length} issue type{preValidation.rawIssues.length > 1 ? "s" : ""} detected (will be auto-fixed)
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {preValidation.rawIssues.slice(0, 5).map((issue, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs bg-amber-500/10 border-amber-500/30 text-amber-300">
+                              {issue.field}: {issue.problem.toLowerCase().replace("value normalized", "needs fix")}
+                            </Badge>
+                          ))}
+                          {preValidation.rawIssues.length > 5 && (
+                            <Badge variant="outline" className="text-xs bg-slate-500/10 border-slate-500/30">
+                              +{preValidation.rawIssues.length - 5} more
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {preValidation.invalidRows === 0 && preValidation.validRows > 0 && (
+                      <div className="flex items-center gap-2 p-2 rounded bg-green-500/10 border border-green-500/30">
+                        <svg className="h-4 w-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-sm text-green-400">
+                          {preValidation.analyzedRows === preValidation.totalRows
+                            ? "All records are valid! You can proceed with full validation and export."
+                            : "Feed looks valid so far. Run full validation to confirm."}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Validate Button */}
           <div className="flex gap-3">
             <Button
@@ -361,6 +504,52 @@ export default function Home() {
           {/* Results */}
           {result && (
             <>
+              {/* Auto-fixes Applied */}
+              {result.rawIssues && result.rawIssues.length > 0 && (
+                <Card className="border-amber-500/50 bg-amber-500/5">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <svg className="h-5 w-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <CardTitle className="text-base">Auto-fixes Applied</CardTitle>
+                    </div>
+                    <CardDescription>
+                      These issues in your original feed were automatically corrected
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="space-y-2">
+                      {result.rawIssues.map((issue, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20"
+                        >
+                          <svg className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-amber-200">
+                              {issue.problem}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              <span className="font-mono bg-black/30 px-1 rounded">{issue.field}</span>
+                              {": "}
+                              <span className="line-through text-red-400/70">{String(issue.originalValue)}</span>
+                              {" → "}
+                              <span className="text-green-400">{String(issue.fixedValue)}</span>
+                              {issue.count > 1 && (
+                                <span className="ml-2 text-amber-400">({issue.count}+ occurrences)</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <ValidationResults
                 summary={result.summary}
                 validatorName={result.validator.name}
@@ -460,9 +649,10 @@ export default function Home() {
             </a>
           </p>
           <div className="flex items-center justify-center gap-4">
-            <Badge variant="secondary">Next.js 16</Badge>
-            <Badge variant="secondary">Zod 4</Badge>
-            <Badge variant="secondary">100% Client-Side</Badge>
+            <Badge variant="secondary">Zero Tracking</Badge>
+            <Badge variant="secondary">No Cookies</Badge>
+            <Badge variant="secondary">100% Privacy</Badge>
+            <Badge variant="secondary">Open Source</Badge>
           </div>
         </footer>
       </div>
@@ -475,6 +665,20 @@ export default function Home() {
         targetFields={OPENAI_TARGET_FIELDS}
         fieldAliases={currentValidator?.fieldAliases ?? {}}
         onConfirm={handleMappingConfirm}
+      />
+
+      {/* Pre-validation Progress Dialog */}
+      <PreValidationDialog
+        open={showPreValidationDialog}
+        progress={preValidationProgress}
+        onCancel={handleCancelPreValidation}
+      />
+
+      {/* Final Validation Progress Dialog */}
+      <ValidationProgressDialog
+        open={showValidationDialog}
+        progress={validationProgress}
+        onCancel={handleCancelValidation}
       />
     </main>
   );

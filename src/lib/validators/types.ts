@@ -53,6 +53,8 @@ export interface ValidatorModule<T extends z.ZodTypeAny = z.ZodTypeAny> {
   fieldNormalizers: FieldNormalizers;
   defaultValues?: Record<string, unknown>;
   validateRecord: (record: Record<string, unknown>, row: number) => RecordValidationResult;
+  // Validate without applying normalizations (for raw feed analysis)
+  validateRecordRaw?: (record: Record<string, unknown>, row: number) => RecordValidationResult;
 }
 
 export type FileFormat = "jsonl" | "csv" | "jsonl.gz" | "csv.gz";

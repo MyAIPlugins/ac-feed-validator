@@ -4,6 +4,16 @@ import type { FeedValidationSummary, ValidationIssue } from "./types";
 
 const MAX_ISSUES_RETURNED = 100;
 const MAX_VALID_RECORDS_STORED = 10000;
+const MAX_RAW_ISSUES_PREVIEW = 20;
+
+// Summary of issues found in raw feed (before normalization)
+export interface RawFeedIssue {
+  field: string;
+  originalValue: unknown;
+  problem: string;
+  fixedValue?: unknown;
+  count: number;
+}
 
 export interface ClientValidationResult {
   success: boolean;
@@ -18,8 +28,21 @@ export interface ClientValidationResult {
     size: number;
   };
   summary: FeedValidationSummary;
+  rawIssues?: RawFeedIssue[];
   truncated: boolean;
   validRecordsTruncated?: boolean;
+}
+
+// Progress callback for validation
+export interface ValidationProgress {
+  totalRows: number;
+  processedRows: number;
+  validRows: number;
+  invalidRows: number;
+  errorCount: number;
+  warningCount: number;
+  isComplete: boolean;
+  isCancelled: boolean;
 }
 
 export interface ValidateClientOptions {
@@ -27,10 +50,89 @@ export interface ValidateClientOptions {
   validatorId: string;
   includeValidRecords?: boolean;
   customMappings?: Record<string, string> | null;
+  onProgress?: (progress: ValidationProgress) => void;
+  signal?: AbortSignal;
+  chunkSize?: number;
+}
+
+// Detect raw issues by comparing original values with what normalization produces
+function detectRawIssues(
+  record: Record<string, unknown>,
+  fieldAliases: Record<string, string[]>,
+  fieldNormalizers: Record<string, (value: unknown) => unknown>
+): Array<{ field: string; original: unknown; fixed: unknown; problem: string }> {
+  const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string }> = [];
+
+  // Check field aliases - detect misnamed fields
+  for (const [canonical, aliases] of Object.entries(fieldAliases)) {
+    for (const alias of aliases) {
+      if (record[alias] !== undefined && record[canonical] === undefined) {
+        issues.push({
+          field: alias,
+          original: alias,
+          fixed: canonical,
+          problem: `Field "${alias}" renamed to "${canonical}"`,
+        });
+      }
+    }
+  }
+
+  // Check normalizers - detect value transformations
+  for (const [field, normalizer] of Object.entries(fieldNormalizers)) {
+    // Find the actual field name (could be aliased)
+    let actualField = field;
+    let originalValue = record[field];
+
+    if (originalValue === undefined) {
+      const aliases = fieldAliases[field] ?? [];
+      for (const alias of aliases) {
+        if (record[alias] !== undefined) {
+          actualField = alias;
+          originalValue = record[alias];
+          break;
+        }
+      }
+    }
+
+    if (originalValue !== undefined && originalValue !== null && originalValue !== "") {
+      const normalized = normalizer(originalValue);
+      if (normalized !== originalValue) {
+        let problem = `Value normalized`;
+
+        // Detect specific normalization types
+        if (field === "price" || field === "sale_price" || field === "shipping_price") {
+          problem = "Price format corrected (comma → dot)";
+        } else if (field === "availability") {
+          problem = "Availability format standardized";
+        } else if (field === "return_window") {
+          problem = "Return window extracted (days → number)";
+        } else if (field === "condition") {
+          problem = "Condition value translated";
+        }
+
+        issues.push({
+          field: actualField,
+          original: originalValue,
+          fixed: normalized,
+          problem,
+        });
+      }
+    }
+  }
+
+  return issues;
 }
 
 export async function validateClient(options: ValidateClientOptions): Promise<ClientValidationResult> {
-  const { file, validatorId, includeValidRecords = true, customMappings } = options;
+  const {
+    file,
+    validatorId,
+    includeValidRecords = true,
+    customMappings,
+    onProgress,
+    signal,
+    chunkSize = 500,
+  } = options;
 
   // Get validator
   const validator = getValidator(validatorId);
@@ -51,19 +153,85 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
     throw new Error(`Validator ${validatorId} does not support ${baseFormat} format`);
   }
 
-  // Parse and validate
+  // Parse file - first pass to collect all records
   const parsed = await parseFileClient(file);
+  const allRecords: Record<string, unknown>[] = [];
+  for await (const record of parsed.records) {
+    allRecords.push(record);
+  }
+  const totalRows = allRecords.length;
+
   const issues: ValidationIssue[] = [];
   const validRecords: Record<string, unknown>[] = [];
-  let totalRows = 0;
+
+  // Track raw issues for preview (aggregated by type)
+  const rawIssuesMap = new Map<string, RawFeedIssue>();
+
   let validRows = 0;
   let invalidRows = 0;
   let errorCount = 0;
   let warningCount = 0;
+  let processedInChunk = 0;
 
-  let row = 1;
-  for await (const record of parsed.records) {
-    totalRows++;
+  // Report initial progress
+  onProgress?.({
+    totalRows,
+    processedRows: 0,
+    validRows: 0,
+    invalidRows: 0,
+    errorCount: 0,
+    warningCount: 0,
+    isComplete: false,
+    isCancelled: false,
+  });
+
+  // Process records in chunks
+  for (let i = 0; i < allRecords.length; i++) {
+    // Check for cancellation
+    if (signal?.aborted) {
+      onProgress?.({
+        totalRows,
+        processedRows: i,
+        validRows,
+        invalidRows,
+        errorCount,
+        warningCount,
+        isComplete: false,
+        isCancelled: true,
+      });
+
+      // Return partial results on cancellation
+      const summary: FeedValidationSummary = {
+        totalRows,
+        validRows,
+        invalidRows,
+        errorCount,
+        warningCount,
+        issues,
+        validRecords: includeValidRecords ? validRecords : undefined,
+      };
+
+      return {
+        success: false,
+        validator: {
+          id: validator.id,
+          name: validator.name,
+          version: validator.version,
+        },
+        file: {
+          name: file.name,
+          format,
+          size: file.size,
+        },
+        summary,
+        rawIssues: Array.from(rawIssuesMap.values()),
+        truncated: true,
+        validRecordsTruncated: false,
+      };
+    }
+
+    const record = allRecords[i];
+    const row = i + 1;
 
     // Apply custom mappings if provided
     let mappedRecord = record;
@@ -76,6 +244,31 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
         } else {
           // Keep unmapped fields with original name
           mappedRecord[sourceField] = value;
+        }
+      }
+    }
+
+    // Detect raw issues before normalization (only on first few rows for preview)
+    if (row <= 10) {
+      const rawDetected = detectRawIssues(
+        mappedRecord,
+        validator.fieldAliases,
+        validator.fieldNormalizers
+      );
+
+      for (const issue of rawDetected) {
+        const key = `${issue.field}:${issue.problem}`;
+        const existing = rawIssuesMap.get(key);
+        if (existing) {
+          existing.count++;
+        } else if (rawIssuesMap.size < MAX_RAW_ISSUES_PREVIEW) {
+          rawIssuesMap.set(key, {
+            field: issue.field,
+            originalValue: issue.original,
+            problem: issue.problem,
+            fixedValue: issue.fixed,
+            count: 1,
+          });
         }
       }
     }
@@ -101,8 +294,40 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
       }
     }
 
-    row++;
+    processedInChunk++;
+
+    // Yield to UI every chunk
+    if (processedInChunk >= chunkSize) {
+      processedInChunk = 0;
+
+      // Report progress
+      onProgress?.({
+        totalRows,
+        processedRows: i + 1,
+        validRows,
+        invalidRows,
+        errorCount,
+        warningCount,
+        isComplete: false,
+        isCancelled: false,
+      });
+
+      // Yield to browser
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
   }
+
+  // Final progress report
+  onProgress?.({
+    totalRows,
+    processedRows: totalRows,
+    validRows,
+    invalidRows,
+    errorCount,
+    warningCount,
+    isComplete: true,
+    isCancelled: false,
+  });
 
   const summary: FeedValidationSummary = {
     totalRows,
@@ -113,6 +338,9 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
     issues,
     validRecords: includeValidRecords ? validRecords : undefined,
   };
+
+  // Convert raw issues map to array
+  const rawIssues = Array.from(rawIssuesMap.values());
 
   return {
     success: true,
@@ -127,6 +355,7 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
       size: file.size,
     },
     summary,
+    rawIssues: rawIssues.length > 0 ? rawIssues : undefined,
     truncated: errorCount + warningCount > MAX_ISSUES_RETURNED,
     validRecordsTruncated: includeValidRecords && validRows > MAX_VALID_RECORDS_STORED,
   };
@@ -145,4 +374,157 @@ export function getAvailableValidators() {
       fieldAliases: v.fieldAliases,
     } : null;
   }).filter(Boolean);
+}
+
+// Pre-validation result (quick check without full processing)
+export interface PreValidationResult {
+  totalRows: number;
+  analyzedRows: number;
+  validRows: number;
+  invalidRows: number;
+  rawIssues: RawFeedIssue[];
+}
+
+// Progress callback for chunked validation
+export interface PreValidationProgress {
+  totalRows: number;
+  processedRows: number;
+  validRows: number;
+  invalidRows: number;
+  isComplete: boolean;
+  isCancelled: boolean;
+}
+
+export interface PreValidateOptions {
+  file: File;
+  validatorId: string;
+  onProgress?: (progress: PreValidationProgress) => void;
+  signal?: AbortSignal;
+  chunkSize?: number;
+}
+
+// Chunked pre-validation with progress reporting
+export async function preValidateClient(
+  options: PreValidateOptions
+): Promise<PreValidationResult> {
+  const { file, validatorId, onProgress, signal, chunkSize = 500 } = options;
+
+  const validator = getValidator(validatorId);
+  if (!validator) {
+    throw new Error(`Unknown validator: ${validatorId}`);
+  }
+
+  const parsed = await parseFileClient(file);
+  const rawIssuesMap = new Map<string, RawFeedIssue>();
+
+  let totalRows = 0;
+  let validRows = 0;
+  let invalidRows = 0;
+  let processedInChunk = 0;
+
+  // First pass: count total rows (quick scan)
+  const allRecords: Record<string, unknown>[] = [];
+  for await (const record of parsed.records) {
+    allRecords.push(record);
+  }
+  totalRows = allRecords.length;
+
+  // Report initial progress
+  onProgress?.({
+    totalRows,
+    processedRows: 0,
+    validRows: 0,
+    invalidRows: 0,
+    isComplete: false,
+    isCancelled: false,
+  });
+
+  // Process in chunks with yielding to UI
+  for (let i = 0; i < allRecords.length; i++) {
+    // Check for cancellation
+    if (signal?.aborted) {
+      return {
+        totalRows,
+        analyzedRows: i,
+        validRows,
+        invalidRows,
+        rawIssues: Array.from(rawIssuesMap.values()),
+      };
+    }
+
+    const record = allRecords[i];
+    const row = i + 1;
+
+    // Detect raw issues (only first 20 rows for issue detection)
+    if (row <= 20) {
+      const rawDetected = detectRawIssues(
+        record,
+        validator.fieldAliases,
+        validator.fieldNormalizers
+      );
+
+      for (const issue of rawDetected) {
+        const key = `${issue.field}:${issue.problem}`;
+        const existing = rawIssuesMap.get(key);
+        if (existing) {
+          existing.count++;
+        } else if (rawIssuesMap.size < MAX_RAW_ISSUES_PREVIEW) {
+          rawIssuesMap.set(key, {
+            field: issue.field,
+            originalValue: issue.original,
+            problem: issue.problem,
+            fixedValue: issue.fixed,
+            count: 1,
+          });
+        }
+      }
+    }
+
+    // Validate record WITHOUT normalization to show raw feed state
+    const validateFn = validator.validateRecordRaw ?? validator.validateRecord;
+    const result = validateFn(record, row);
+    if (result.isValid) {
+      validRows++;
+    } else {
+      invalidRows++;
+    }
+
+    processedInChunk++;
+
+    // Yield to UI every chunk
+    if (processedInChunk >= chunkSize) {
+      processedInChunk = 0;
+
+      // Report progress
+      onProgress?.({
+        totalRows,
+        processedRows: i + 1,
+        validRows,
+        invalidRows,
+        isComplete: false,
+        isCancelled: false,
+      });
+
+      // Yield to browser
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  // Final progress report
+  onProgress?.({
+    totalRows,
+    processedRows: totalRows,
+    validRows,
+    invalidRows,
+    isComplete: true,
+    isCancelled: false,
+  });
+
+  return {
+    totalRows,
+    analyzedRows: totalRows,
+    validRows,
+    invalidRows,
+    rawIssues: Array.from(rawIssuesMap.values()),
+  };
 }
