@@ -4,6 +4,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-azure-50: oklch(0.97 0.02 240);
+  --color-azure-100: oklch(0.93 0.04 240);
+  --color-azure-500: oklch(0.65 0.15 240);
+  --color-azure-600: oklch(0.55 0.18 240);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

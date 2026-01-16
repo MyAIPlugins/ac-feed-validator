@@ -12,6 +12,20 @@ export async function POST(request: Request): Promise<Response> {
     const file = formData.get("file") as File | null;
     const validatorId = formData.get("validator") as string | null;
     const includeValidRecords = formData.get("includeValidRecords") === "true";
+    const customMappingsStr = formData.get("customMappings") as string | null;
+
+    // Parse custom mappings if provided (sourceField -> targetField)
+    let customMappings: Record<string, string> | null = null;
+    if (customMappingsStr) {
+      try {
+        customMappings = JSON.parse(customMappingsStr);
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid customMappings format" },
+          { status: 400 }
+        );
+      }
+    }
 
     if (!file) {
       return NextResponse.json(
@@ -67,7 +81,23 @@ export async function POST(request: Request): Promise<Response> {
     let row = 1;
     for await (const record of parsed.records) {
       totalRows++;
-      const result = validator.validateRecord(record, row);
+
+      // Apply custom mappings if provided
+      let mappedRecord = record;
+      if (customMappings) {
+        mappedRecord = {};
+        for (const [sourceField, value] of Object.entries(record)) {
+          const targetField = customMappings[sourceField];
+          if (targetField) {
+            mappedRecord[targetField] = value;
+          } else {
+            // Keep unmapped fields with original name
+            mappedRecord[sourceField] = value;
+          }
+        }
+      }
+
+      const result = validator.validateRecord(mappedRecord, row);
 
       if (result.isValid) {
         validRows++;

@@ -70,6 +70,72 @@ export async function parseFile(file: File): Promise<ParsedFile> {
   };
 }
 
+// Extract headers from file (for mapping dialog)
+export async function extractHeaders(file: File): Promise<string[]> {
+  const format = detectFormat(file.name);
+  const buffer = await file.arrayBuffer();
+
+  let content: string;
+  if (format === "jsonl.gz" || format === "csv.gz") {
+    content = await decompressGzip(buffer);
+  } else {
+    content = new TextDecoder().decode(buffer);
+  }
+
+  const baseFormat = format.replace(".gz", "") as "jsonl" | "csv";
+
+  if (baseFormat === "csv") {
+    // Get first line (headers)
+    const firstLine = content.split("\n")[0];
+    const result = Papa.parse(firstLine, { header: false });
+    return (result.data[0] as string[]).map((h) => h.trim());
+  } else {
+    // JSONL: get keys from first record
+    const firstLine = content.split("\n").find((l) => l.trim());
+    if (!firstLine) return [];
+    try {
+      const firstRecord = JSON.parse(firstLine) as Record<string, unknown>;
+      return Object.keys(firstRecord);
+    } catch {
+      return [];
+    }
+  }
+}
+
+// Browser-compatible version for header extraction
+export async function extractHeadersClient(file: File): Promise<string[]> {
+  const format = detectFormat(file.name);
+  const buffer = await file.arrayBuffer();
+
+  let content: string;
+  if (format === "jsonl.gz" || format === "csv.gz") {
+    const stream = new Response(buffer).body;
+    if (!stream) throw new Error("Failed to create stream from buffer");
+    const decompressedStream = stream.pipeThrough(new DecompressionStream("gzip"));
+    const decompressedResponse = new Response(decompressedStream);
+    content = await decompressedResponse.text();
+  } else {
+    content = new TextDecoder().decode(buffer);
+  }
+
+  const baseFormat = format.replace(".gz", "") as "jsonl" | "csv";
+
+  if (baseFormat === "csv") {
+    const firstLine = content.split("\n")[0];
+    const result = Papa.parse(firstLine, { header: false });
+    return (result.data[0] as string[]).map((h) => h.trim());
+  } else {
+    const firstLine = content.split("\n").find((l) => l.trim());
+    if (!firstLine) return [];
+    try {
+      const firstRecord = JSON.parse(firstLine) as Record<string, unknown>;
+      return Object.keys(firstRecord);
+    } catch {
+      return [];
+    }
+  }
+}
+
 // Browser-compatible version (no Bun.gunzipSync)
 export async function parseFileClient(file: File): Promise<ParsedFile> {
   const format = detectFormat(file.name);

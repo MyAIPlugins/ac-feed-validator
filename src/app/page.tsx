@@ -4,10 +4,42 @@ import { useState, useEffect, useCallback } from "react";
 import { FileUpload } from "@/components/file-upload";
 import { ValidatorSelect } from "@/components/validator-select";
 import { ValidationResults } from "@/components/validation-results";
+import { FieldMappingDialog } from "@/components/field-mapping-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { extractHeadersClient } from "@/lib/parsers";
 import type { FeedValidationSummary } from "@/lib/validators/types";
+
+// OpenAI target fields definition
+const OPENAI_TARGET_FIELDS = [
+  { name: "is_eligible_search", required: true, description: "Enable ChatGPT search" },
+  { name: "is_eligible_checkout", required: true, description: "Enable in-app checkout" },
+  { name: "item_id", required: true, description: "Unique product ID" },
+  { name: "title", required: true, description: "Product name" },
+  { name: "description", required: false, description: "Product description" },
+  { name: "url", required: true, description: "Product page URL" },
+  { name: "brand", required: true, description: "Brand name" },
+  { name: "price", required: true, description: "Regular price" },
+  { name: "currency", required: false, description: "Currency code (ISO 4217)" },
+  { name: "sale_price", required: false, description: "Sale price" },
+  { name: "availability", required: true, description: "Stock status" },
+  { name: "image_url", required: true, description: "Main product image" },
+  { name: "additional_image_urls", required: false, description: "Extra images" },
+  { name: "group_id", required: false, description: "Variant group ID" },
+  { name: "size", required: false, description: "Product size" },
+  { name: "color", required: false, description: "Product color" },
+  { name: "condition", required: false, description: "new/refurbished/used" },
+  { name: "product_category", required: false, description: "Product category" },
+  { name: "store_name", required: false, description: "Merchant name" },
+  { name: "seller_url", required: false, description: "Merchant URL" },
+  { name: "return_policy", required: true, description: "Return policy URL" },
+  { name: "return_window", required: true, description: "Return window in days" },
+  { name: "target_countries", required: true, description: "Target countries (ISO)" },
+  { name: "store_country", required: true, description: "Store country (ISO)" },
+  { name: "material", required: false, description: "Product material" },
+  { name: "inventory_quantity", required: false, description: "Stock quantity" },
+];
 
 interface Validator {
   id: string;
@@ -44,6 +76,11 @@ export default function Home() {
   const [result, setResult] = useState<ValidationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Field mapping dialog state
+  const [showMappingDialog, setShowMappingDialog] = useState(false);
+  const [sourceHeaders, setSourceHeaders] = useState<string[]>([]);
+  const [customMappings, setCustomMappings] = useState<Record<string, string> | null>(null);
+
   useEffect(() => {
     fetch("/api/validate")
       .then((res) => res.json())
@@ -56,13 +93,35 @@ export default function Home() {
       .catch(() => setError("Failed to load validators"));
   }, []);
 
-  const handleFileSelect = (selectedFile: File) => {
+  const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
     setResult(null);
     setError(null);
+    setCustomMappings(null);
+
+    // Extract headers for mapping dialog
+    try {
+      const headers = await extractHeadersClient(selectedFile);
+      setSourceHeaders(headers);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to read file headers");
+    }
   };
 
-  const handleValidate = async () => {
+  const handleShowMapping = () => {
+    if (sourceHeaders.length > 0) {
+      setShowMappingDialog(true);
+    }
+  };
+
+  const handleMappingConfirm = (mappings: Record<string, string>) => {
+    setCustomMappings(mappings);
+    setShowMappingDialog(false);
+    // Auto-validate after confirming mappings
+    handleValidateWithMappings(mappings);
+  };
+
+  const handleValidateWithMappings = async (mappings: Record<string, string> | null) => {
     if (!file || !selectedValidator) return;
 
     setIsValidating(true);
@@ -74,6 +133,9 @@ export default function Home() {
       formData.append("file", file);
       formData.append("validator", selectedValidator);
       formData.append("includeValidRecords", "true");
+      if (mappings) {
+        formData.append("customMappings", JSON.stringify(mappings));
+      }
 
       const response = await fetch("/api/validate", {
         method: "POST",
@@ -94,22 +156,23 @@ export default function Home() {
     }
   };
 
+  const handleValidate = () => {
+    handleValidateWithMappings(customMappings);
+  };
+
   const handleExport = useCallback(async () => {
     if (!result?.summary.validRecords?.length) return;
 
     setIsExporting(true);
     try {
-      // Convert to JSONL
       const jsonlContent = result.summary.validRecords
         .map((record) => JSON.stringify(record))
         .join("\n");
 
-      // Compress with gzip using CompressionStream
       const blob = new Blob([jsonlContent], { type: "application/json" });
       const stream = blob.stream().pipeThrough(new CompressionStream("gzip"));
       const compressedBlob = await new Response(stream).blob();
 
-      // Download
       const url = URL.createObjectURL(compressedBlob);
       const a = document.createElement("a");
       a.href = url;
@@ -130,10 +193,14 @@ export default function Home() {
     setFile(null);
     setResult(null);
     setError(null);
+    setSourceHeaders([]);
+    setCustomMappings(null);
   };
 
+  const currentValidator = validators.find((v) => v.id === selectedValidator);
+
   return (
-    <main className="min-h-screen bg-gradient-to-b from-background to-muted/30">
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-950">
       <div className="max-w-4xl mx-auto px-4 py-12 space-y-8">
         {/* Header */}
         <div className="text-center space-y-4">
@@ -221,17 +288,43 @@ export default function Home() {
                         {file.size > 1024 * 1024
                           ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
                           : `${(file.size / 1024).toFixed(1)} KB`}
+                        {sourceHeaders.length > 0 && ` · ${sourceHeaders.length} columns detected`}
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleReset}
-                    disabled={isValidating}
-                  >
-                    Remove
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {sourceHeaders.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleShowMapping}
+                        disabled={isValidating}
+                      >
+                        <svg className="mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                        </svg>
+                        Map Fields
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleReset}
+                      disabled={isValidating}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {customMappings && (
+                <div className="flex items-center gap-2 p-2 rounded bg-blue-500/10 border border-blue-500/30">
+                  <svg className="h-4 w-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-sm text-blue-400">
+                    Custom field mapping applied ({Object.keys(customMappings).length} fields mapped)
+                  </span>
                 </div>
               )}
             </CardContent>
@@ -368,6 +461,16 @@ export default function Home() {
           </div>
         </footer>
       </div>
+
+      {/* Field Mapping Dialog */}
+      <FieldMappingDialog
+        open={showMappingDialog}
+        onOpenChange={setShowMappingDialog}
+        sourceHeaders={sourceHeaders}
+        targetFields={OPENAI_TARGET_FIELDS}
+        fieldAliases={currentValidator?.fieldAliases ?? {}}
+        onConfirm={handleMappingConfirm}
+      />
     </main>
   );
 }
