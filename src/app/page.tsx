@@ -436,8 +436,8 @@ export default function Home() {
             </svg>
             {" "}in Canary Islands
           </p>
-          <p className="text-xs">
-            © {new Date().getFullYear()}{" "}
+          <p className="text-xs flex items-center justify-center gap-1">
+            <span>© {new Date().getFullYear()}</span>
             <a
               href="https://www.alancurtisagency.com"
               target="_blank"
@@ -446,13 +446,12 @@ export default function Home() {
             >
               Alan Curtis / AC Agency
             </a>
-            {" "}— MIT License
-            {" "}
+            <span>— MIT License</span>
             <a
               href="https://github.com/MyAIPlugins/ac-feed-validator"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center hover:text-primary transition-colors ml-2"
+              className="hover:text-primary transition-colors"
               aria-label="GitHub Repository"
             >
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
