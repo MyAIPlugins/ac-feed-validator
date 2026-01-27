@@ -13,6 +13,7 @@ export interface RawFeedIssue {
   problem: string;
   fixedValue?: unknown;
   count: number;
+  severity: "warning" | "info";
 }
 
 export interface ClientValidationResult {
@@ -55,13 +56,91 @@ export interface ValidateClientOptions {
   chunkSize?: number;
 }
 
+// Boolean fields that should be true booleans, not strings
+const BOOLEAN_FIELDS = [
+  "is_eligible_search",
+  "is_eligible_checkout",
+  "listing_has_variations",
+  "accepts_returns",
+  "accepts_exchanges",
+  "is_digital",
+];
+
+// URL fields that should not contain localhost
+const URL_FIELDS = ["url", "image_url", "seller_url", "return_policy", "seller_privacy_policy", "seller_tos", "warning_url"];
+
 // Detect raw issues by comparing original values with what normalization produces
 function detectRawIssues(
   record: Record<string, unknown>,
   fieldAliases: Record<string, string[]>,
   fieldNormalizers: Record<string, (value: unknown) => unknown>
-): Array<{ field: string; original: unknown; fixed: unknown; problem: string }> {
-  const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string }> = [];
+): Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> {
+  const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> = [];
+
+  // Helper to get field value (checking aliases too)
+  const getFieldValue = (fieldName: string): { value: unknown; actualField: string } | null => {
+    if (record[fieldName] !== undefined) {
+      return { value: record[fieldName], actualField: fieldName };
+    }
+    const aliases = fieldAliases[fieldName] ?? [];
+    for (const alias of aliases) {
+      if (record[alias] !== undefined) {
+        return { value: record[alias], actualField: alias };
+      }
+    }
+    return null;
+  };
+
+  // Check for booleans passed as strings
+  for (const field of BOOLEAN_FIELDS) {
+    const found = getFieldValue(field);
+    if (found && typeof found.value === "string") {
+      const strVal = found.value.toLowerCase();
+      if (["true", "false", "1", "0"].includes(strVal)) {
+        issues.push({
+          field: found.actualField,
+          original: found.value,
+          fixed: ["true", "1"].includes(strVal),
+          problem: `Boolean as string → will convert to ${["true", "1"].includes(strVal)}`,
+          severity: "warning",
+        });
+      }
+    }
+  }
+
+  // Check for localhost URLs
+  for (const field of URL_FIELDS) {
+    const found = getFieldValue(field);
+    if (found && typeof found.value === "string") {
+      const url = found.value.toLowerCase();
+      if (url.includes("localhost") || url.includes("127.0.0.1")) {
+        issues.push({
+          field: found.actualField,
+          original: found.value,
+          fixed: undefined,
+          problem: "URL contains localhost - may not pass OpenAI validation",
+          severity: "warning",
+        });
+      }
+    }
+  }
+
+  // Check for short return_window
+  const returnWindow = getFieldValue("return_window");
+  if (returnWindow) {
+    const numVal = typeof returnWindow.value === "number"
+      ? returnWindow.value
+      : parseInt(String(returnWindow.value), 10);
+    if (!isNaN(numVal) && numVal < 7) {
+      issues.push({
+        field: returnWindow.actualField,
+        original: returnWindow.value,
+        fixed: undefined,
+        problem: `Return window is only ${numVal} day(s) - unusually short`,
+        severity: "warning",
+      });
+    }
+  }
 
   // Check field aliases - detect misnamed fields
   for (const [canonical, aliases] of Object.entries(fieldAliases)) {
@@ -72,6 +151,7 @@ function detectRawIssues(
           original: alias,
           fixed: canonical,
           problem: `Field "${alias}" renamed to "${canonical}"`,
+          severity: "info",
         });
       }
     }
@@ -115,6 +195,7 @@ function detectRawIssues(
           original: originalValue,
           fixed: normalized,
           problem,
+          severity: "info",
         });
       }
     }
@@ -268,6 +349,7 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
             problem: issue.problem,
             fixedValue: issue.fixed,
             count: 1,
+            severity: issue.severity,
           });
         }
       }
@@ -475,6 +557,7 @@ export async function preValidateClient(
             problem: issue.problem,
             fixedValue: issue.fixed,
             count: 1,
+            severity: issue.severity,
           });
         }
       }

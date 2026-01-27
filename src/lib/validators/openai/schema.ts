@@ -82,6 +82,10 @@ export const openAIFeedSchema = z.object({
 
   // Variants
   group_id: z.string().max(70).optional(),
+  item_group_title: z.string().max(150).refine(
+    (title) => title !== title.toUpperCase() || title.length <= 10,
+    { message: "Avoid using all-caps for group titles" }
+  ).optional(),
   listing_has_variations: booleanSchema.optional(),
   size: z.string().max(100).optional(),
   color: z.string().max(40).optional(),
@@ -104,7 +108,10 @@ export const openAIFeedSchema = z.object({
   accepts_exchanges: booleanSchema.optional(),
 
   // Geo Targeting (Required)
-  target_countries: z.string().min(2),
+  target_countries: z.union([
+    z.string().min(2),
+    z.array(z.string().min(2)).min(1),
+  ]),
   store_country: z.enum(countryCodes),
 
   // Item Information (Optional)
@@ -187,6 +194,7 @@ const fieldAliases: FieldAliases = {
 
   // Variants
   group_id: ["item_group_id", "parent_id", "variant_group", "product_group"],
+  item_group_title: ["group_title", "variant_group_title", "parent_title"],
   listing_has_variations: ["has_variants", "has_variations", "is_variant"],
 
   // Merchant info

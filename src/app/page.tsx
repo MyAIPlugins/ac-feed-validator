@@ -29,6 +29,8 @@ const OPENAI_TARGET_FIELDS = [
   { name: "image_url", required: true, description: "Main product image" },
   { name: "additional_image_urls", required: false, description: "Extra images" },
   { name: "group_id", required: false, description: "Variant group ID" },
+  { name: "item_group_title", required: false, description: "Group product title" },
+  { name: "listing_has_variations", required: false, description: "Has variants" },
   { name: "size", required: false, description: "Product size" },
   { name: "color", required: false, description: "Product color" },
   { name: "condition", required: false, description: "new/refurbished/used" },
@@ -405,37 +407,81 @@ export default function Home() {
                         <p className="text-xs text-muted-foreground">Invalid</p>
                       </div>
                     </div>
-                    {preValidation.rawIssues.length > 0 && (
-                      <div className="pt-2 border-t border-slate-500/20">
-                        <p className="text-xs text-muted-foreground mb-2">
-                          {preValidation.rawIssues.length} issue type{preValidation.rawIssues.length > 1 ? "s" : ""} detected (will be auto-fixed)
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {preValidation.rawIssues.slice(0, 5).map((issue, idx) => (
-                            <Badge key={idx} variant="outline" className="text-xs bg-amber-500/10 border-amber-500/30 text-amber-300">
-                              {issue.field}: {issue.problem.toLowerCase().replace("value normalized", "needs fix")}
-                            </Badge>
-                          ))}
-                          {preValidation.rawIssues.length > 5 && (
-                            <Badge variant="outline" className="text-xs bg-slate-500/10 border-slate-500/30">
-                              +{preValidation.rawIssues.length - 5} more
-                            </Badge>
+                    {preValidation.rawIssues.length > 0 && (() => {
+                      const warnings = preValidation.rawIssues.filter(i => i.severity === "warning");
+                      const infos = preValidation.rawIssues.filter(i => i.severity === "info");
+                      return (
+                        <div className="pt-3 border-t border-slate-500/20 space-y-4">
+                          {/* Warnings - need attention */}
+                          {warnings.length > 0 && (
+                            <div>
+                              <p className="text-xs text-red-400 font-medium mb-2">
+                                ⚠️ {warnings.length} warning{warnings.length > 1 ? "s" : ""} - needs attention
+                              </p>
+                              <div className="space-y-1">
+                                {warnings.map((issue, idx) => (
+                                  <div key={idx} className="flex items-center gap-2 text-xs p-2 rounded bg-red-500/10 border border-red-500/20">
+                                    <span className="font-mono text-red-300 shrink-0">{issue.field}</span>
+                                    <span className="text-muted-foreground">→</span>
+                                    <span className="text-red-200">{issue.problem}</span>
+                                    {issue.count > 1 && (
+                                      <span className="text-red-400 ml-auto">×{issue.count}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Info - will be auto-fixed */}
+                          {infos.length > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-2">
+                                ✓ {infos.length} normalization{infos.length > 1 ? "s" : ""} will be applied
+                              </p>
+                              <div className="space-y-1">
+                                {infos.map((issue, idx) => (
+                                  <div key={idx} className="flex items-center gap-2 text-xs p-2 rounded bg-amber-500/10 border border-amber-500/20">
+                                    <span className="font-mono text-amber-300 shrink-0">{issue.field}</span>
+                                    <span className="text-muted-foreground">→</span>
+                                    <span className="text-amber-200">{issue.problem}</span>
+                                    {issue.count > 1 && (
+                                      <span className="text-amber-400 ml-auto">×{issue.count}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           )}
                         </div>
-                      </div>
-                    )}
-                    {preValidation.invalidRows === 0 && preValidation.validRows > 0 && (
-                      <div className="flex items-center gap-2 p-2 rounded bg-green-500/10 border border-green-500/30">
-                        <svg className="h-4 w-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span className="text-sm text-green-400">
-                          {preValidation.analyzedRows === preValidation.totalRows
-                            ? "All records are valid! You can proceed with full validation and export."
-                            : "Feed looks valid so far. Run full validation to confirm."}
-                        </span>
-                      </div>
-                    )}
+                      );
+                    })()}
+                    {preValidation.invalidRows === 0 && preValidation.validRows > 0 && (() => {
+                      const hasWarnings = preValidation.rawIssues.some(i => i.severity === "warning");
+                      if (hasWarnings) {
+                        return (
+                          <div className="flex items-center gap-2 p-2 rounded bg-amber-500/10 border border-amber-500/30">
+                            <svg className="h-4 w-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <span className="text-sm text-amber-400">
+                              Records pass schema validation, but have warnings. Review before submitting to OpenAI.
+                            </span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="flex items-center gap-2 p-2 rounded bg-green-500/10 border border-green-500/30">
+                          <svg className="h-4 w-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="text-sm text-green-400">
+                            {preValidation.analyzedRows === preValidation.totalRows
+                              ? "All records are valid! You can proceed with full validation and export."
+                              : "Feed looks valid so far. Run full validation to confirm."}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </CardContent>
@@ -504,51 +550,109 @@ export default function Home() {
           {/* Results */}
           {result && (
             <>
-              {/* Auto-fixes Applied */}
-              {result.rawIssues && result.rawIssues.length > 0 && (
-                <Card className="border-amber-500/50 bg-amber-500/5">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center gap-2">
-                      <svg className="h-5 w-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      <CardTitle className="text-base">Auto-fixes Applied</CardTitle>
-                    </div>
-                    <CardDescription>
-                      These issues in your original feed were automatically corrected
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="space-y-2">
-                      {result.rawIssues.map((issue, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20"
-                        >
-                          <svg className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                          </svg>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-amber-200">
-                              {issue.problem}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              <span className="font-mono bg-black/30 px-1 rounded">{issue.field}</span>
-                              {": "}
-                              <span className="line-through text-red-400/70">{String(issue.originalValue)}</span>
-                              {" → "}
-                              <span className="text-green-400">{String(issue.fixedValue)}</span>
-                              {issue.count > 1 && (
-                                <span className="ml-2 text-amber-400">({issue.count}+ occurrences)</span>
-                              )}
-                            </p>
+              {/* Warnings & Auto-fixes Applied */}
+              {result.rawIssues && result.rawIssues.length > 0 && (() => {
+                const warnings = result.rawIssues.filter(i => i.severity === "warning");
+                const infos = result.rawIssues.filter(i => i.severity === "info");
+                return (
+                  <div className="space-y-4">
+                    {/* Warnings Card */}
+                    {warnings.length > 0 && (
+                      <Card className="border-red-500/50 bg-red-500/5">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-5 w-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <CardTitle className="text-base">Warnings</CardTitle>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                          <CardDescription>
+                            These issues may cause problems - review before submitting to OpenAI
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="space-y-2">
+                            {warnings.map((issue, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-start gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20"
+                              >
+                                <svg className="h-4 w-4 text-red-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-red-200">
+                                    {issue.problem}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    <span className="font-mono bg-black/30 px-1 rounded">{issue.field}</span>
+                                    {": "}
+                                    <span className="text-red-400/70">{String(issue.originalValue)}</span>
+                                    {issue.fixedValue !== undefined && (
+                                      <>
+                                        {" → "}
+                                        <span className="text-amber-400">{String(issue.fixedValue)}</span>
+                                      </>
+                                    )}
+                                    {issue.count > 1 && (
+                                      <span className="ml-2 text-red-400">({issue.count}+ occurrences)</span>
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {/* Auto-fixes Card */}
+                    {infos.length > 0 && (
+                      <Card className="border-amber-500/50 bg-amber-500/5">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-5 w-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            <CardTitle className="text-base">Auto-fixes Applied</CardTitle>
+                          </div>
+                          <CardDescription>
+                            These issues in your original feed were automatically corrected
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="space-y-2">
+                            {infos.map((issue, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20"
+                              >
+                                <svg className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-amber-200">
+                                    {issue.problem}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    <span className="font-mono bg-black/30 px-1 rounded">{issue.field}</span>
+                                    {": "}
+                                    <span className="line-through text-red-400/70">{String(issue.originalValue)}</span>
+                                    {" → "}
+                                    <span className="text-green-400">{String(issue.fixedValue)}</span>
+                                    {issue.count > 1 && (
+                                      <span className="ml-2 text-amber-400">({issue.count}+ occurrences)</span>
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                );
+              })()}
 
               <ValidationResults
                 summary={result.summary}
