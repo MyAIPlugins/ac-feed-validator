@@ -7,6 +7,7 @@ import { ValidationResults } from "@/components/validation-results";
 import { FieldMappingDialog } from "@/components/field-mapping-dialog";
 import { PreValidationDialog, type PreValidationProgress } from "@/components/pre-validation-dialog";
 import { ValidationProgressDialog } from "@/components/validation-progress-dialog";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -242,24 +243,29 @@ export default function Home() {
   const currentValidator = validators.find((v) => v.id === selectedValidator);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-950">
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-white dark:from-slate-900 dark:via-blue-950 dark:to-slate-950">
       <div className="max-w-4xl mx-auto px-4 py-12 space-y-8">
         {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-            </span>
-            Open Source
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <ThemeToggle />
           </div>
-          <h1 className="text-5xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
-            AI Feed Validator
-          </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Validate, normalize, and export product feeds for AI commerce platforms.
-            Supports OpenAI, with more coming soon.
-          </p>
+          <div className="text-center space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+              </span>
+              Open Source
+            </div>
+            <h1 className="text-5xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
+              AI Feed Validator
+            </h1>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              Validate, normalize, and export product feeds for AI commerce platforms.
+              Supports OpenAI, with more coming soon.
+            </p>
+          </div>
         </div>
 
         {/* Main Content */}
