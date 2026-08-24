@@ -7,6 +7,8 @@ import {
   commerceBaseNormalizers,
   commerceBaseDefaults,
   commerceBaseTargetFields,
+  commerceBaseBooleanFields,
+  commerceBaseTrapAliases,
   createRecordValidators,
 } from "../shared/commerce-base";
 
@@ -37,6 +39,11 @@ export const openAIValidator: ValidatorModule<typeof openAIFeedSchema> = {
   fieldNormalizers: commerceBaseNormalizers,
   defaultValues: commerceBaseDefaults,
   targetFields: commerceBaseTargetFields,
+  // is_ads_eligible is optional on the base schema (see commerce-base.ts),
+  // so a feed using this validator can still trip the same boolean-as-string
+  // and is_ads_enabled-trap warnings as the Ads validator.
+  booleanFields: commerceBaseBooleanFields,
+  trapAliases: commerceBaseTrapAliases,
   validateRecord,
   validateRecordRaw,
 };

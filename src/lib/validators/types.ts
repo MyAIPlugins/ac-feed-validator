@@ -67,6 +67,12 @@ export interface ValidatorModule<T extends z.ZodTypeAny = z.ZodTypeAny> {
   // never falls out of sync with a schema it doesn't own.
   targetFields: TargetField[];
   trapAliases?: TrapAliases;
+  // Field names whose schema is boolean-typed - drives the "boolean sent as
+  // string" raw-issue warning. Owned per-validator (next to the schema that
+  // declares them) instead of a hardcoded list in validate-client.ts, so a
+  // new boolean field can't be added to a schema without also being wired
+  // up for that warning.
+  booleanFields: string[];
   validateRecord: (record: Record<string, unknown>, row: number) => RecordValidationResult;
   // Validate without applying normalizations (for raw feed analysis)
   validateRecordRaw?: (record: Record<string, unknown>, row: number) => RecordValidationResult;

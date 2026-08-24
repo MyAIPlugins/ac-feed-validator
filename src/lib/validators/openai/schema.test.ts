@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { openAIValidator } from "./schema";
+import { detectRawIssues } from "../validate-client";
 
 // Regression tests for the plain "OpenAI Product Feed" validator, written
 // against the post-refactor version (fields extracted into
@@ -83,20 +84,44 @@ describe("openAIValidator", () => {
     expect(result.normalized?.url).toBe("https://example.com/aliased");
   });
 
-  test("does not accept is_ads_eligible (not part of this validator's schema)", () => {
-    // Zod strips unknown keys by default - confirms the plain validator
-    // stays unaffected by the Ads-only field.
+  test("accepts is_ads_eligible as an optional field (shared with the Ads validator)", () => {
+    // is_ads_eligible now lives on the shared base schema as optional -
+    // OpenAI's own spec lists it as "Required (Ads); Optional (non-Ads)".
+    // It must survive validation rather than being stripped as an unknown key.
     const result = openAIValidator.validateRecord(
       validRecord({ is_ads_eligible: true }),
       1
     );
     expect(result.isValid).toBe(true);
-    expect(result.data && "is_ads_eligible" in result.data).toBe(false);
+    expect(result.data?.is_ads_eligible).toBe(true);
+  });
+
+  test("still validates fine when is_ads_eligible is absent", () => {
+    const result = openAIValidator.validateRecord(validRecord(), 1);
+    expect(result.isValid).toBe(true);
+  });
+
+  test("warns on the is_ads_enabled trap column (inherited from the shared base)", () => {
+    const record = validRecord({ is_ads_enabled: true });
+
+    const issues = detectRawIssues(
+      record,
+      openAIValidator.fieldAliases,
+      openAIValidator.fieldNormalizers,
+      openAIValidator.trapAliases
+    );
+
+    const trapWarning = issues.find((i) => i.field === "is_ads_enabled");
+    expect(trapWarning).toBeDefined();
+    expect(trapWarning?.severity).toBe("warning");
+    expect(trapWarning?.problem).toContain("is_ads_eligible");
   });
 
   test("exposes targetFields for the field-mapping dialog", () => {
     expect(openAIValidator.targetFields.length).toBeGreaterThan(0);
     expect(openAIValidator.targetFields.some((f) => f.name === "item_id" && f.required)).toBe(true);
-    expect(openAIValidator.targetFields.some((f) => f.name === "is_ads_eligible")).toBe(false);
+    expect(
+      openAIValidator.targetFields.some((f) => f.name === "is_ads_eligible" && !f.required)
+    ).toBe(true);
   });
 });

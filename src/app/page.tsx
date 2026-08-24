@@ -23,8 +23,9 @@ interface Validator {
   fieldAliases?: Record<string, string[]>;
   // Each validator supplies its own mapping-dialog target fields, so the
   // dialog stays correct when a second (or third) validator is added instead
-  // of silently reusing whichever one was hardcoded first.
-  targetFields?: TargetField[];
+  // of silently reusing whichever one was hardcoded first. getAvailableValidators()
+  // always includes this now, so it's not optional here.
+  targetFields: TargetField[];
 }
 
 export default function Home() {
@@ -62,6 +63,39 @@ export default function Home() {
     }
   }, []);
 
+  // Runs pre-validation for a given file against a given validator id. Pulled
+  // out of handleFileSelect so handleValidatorChange can also trigger it when
+  // the user switches validators after a file is already selected - without
+  // this, switching validators left stale pre-validation results (computed
+  // against the OLD validator) on screen.
+  const runPreValidation = async (selectedFile: File, validatorId: string) => {
+    preValidationAbortRef.current?.abort();
+    preValidationAbortRef.current = new AbortController();
+
+    setIsPreValidating(true);
+    setShowPreValidationDialog(true);
+    setPreValidationProgress(null);
+
+    try {
+      const preResult = await preValidateClient({
+        file: selectedFile,
+        validatorId,
+        signal: preValidationAbortRef.current.signal,
+        onProgress: (progress) => {
+          setPreValidationProgress(progress);
+        },
+      });
+      setPreValidation(preResult);
+    } catch (preErr) {
+      if (preErr instanceof Error && preErr.name !== "AbortError") {
+        console.error("Pre-validation failed:", preErr);
+      }
+    } finally {
+      setIsPreValidating(false);
+      setShowPreValidationDialog(false);
+    }
+  };
+
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
     setResult(null);
@@ -74,37 +108,26 @@ export default function Home() {
       const headers = await extractHeadersClient(selectedFile);
       setSourceHeaders(headers);
 
-      // Run pre-validation if we have a validator selected
       if (selectedValidator) {
-        // Cancel any existing pre-validation
-        preValidationAbortRef.current?.abort();
-        preValidationAbortRef.current = new AbortController();
-
-        setIsPreValidating(true);
-        setShowPreValidationDialog(true);
-        setPreValidationProgress(null);
-
-        try {
-          const preResult = await preValidateClient({
-            file: selectedFile,
-            validatorId: selectedValidator,
-            signal: preValidationAbortRef.current.signal,
-            onProgress: (progress) => {
-              setPreValidationProgress(progress);
-            },
-          });
-          setPreValidation(preResult);
-        } catch (preErr) {
-          if (preErr instanceof Error && preErr.name !== "AbortError") {
-            console.error("Pre-validation failed:", preErr);
-          }
-        } finally {
-          setIsPreValidating(false);
-          setShowPreValidationDialog(false);
-        }
+        await runPreValidation(selectedFile, selectedValidator);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read file headers");
+    }
+  };
+
+  // Switching validators changes the schema (and boolean/trap-alias rules)
+  // records are checked against, so any result computed under the previous
+  // validator is stale and must be cleared - then re-run pre-validation
+  // against the new validator if a file is already selected.
+  const handleValidatorChange = (id: string) => {
+    setSelectedValidator(id);
+    if (file) {
+      setResult(null);
+      setError(null);
+      setCustomMappings(null);
+      setPreValidation(null);
+      void runPreValidation(file, id);
     }
   };
 
@@ -254,7 +277,7 @@ export default function Home() {
               <ValidatorSelect
                 validators={validators}
                 selected={selectedValidator}
-                onSelect={setSelectedValidator}
+                onSelect={handleValidatorChange}
                 disabled={isValidating}
               />
             </CardContent>

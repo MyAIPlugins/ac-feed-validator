@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { ValidatorModule, FieldAliases, TrapAliases, TargetField } from "../types";
+import type { ValidatorModule, TargetField } from "../types";
 import {
   commerceBaseSchema,
   withCommerceRefinements,
@@ -7,19 +7,22 @@ import {
   commerceBaseNormalizers,
   commerceBaseDefaults,
   commerceBaseTargetFields,
+  commerceBaseBooleanFields,
+  commerceBaseTrapAliases,
   createRecordValidators,
   booleanSchema,
 } from "../shared/commerce-base";
 
 // OpenAI Ads product feed - same base commerce fields as the plain
-// "OpenAI Product Feed" validator, plus is_ads_eligible.
+// "OpenAI Product Feed" validator, plus is_ads_eligible required.
 //
 // Per developers.openai.com/ads/product-feeds and
 // developers.openai.com/commerce/specs/file-upload/products (fetched 2026-08-24):
-// - is_ads_eligible is Required for an Ads feed (Optional for a non-Ads feed).
-// - A legacy alias `is_eligible_ads` is accepted; `is_ads_enabled` is NOT a
-//   real field and is silently ignored by OpenAI if a merchant uses it by
-//   mistake - see trapAliases below.
+// - is_ads_eligible is Required for an Ads feed (Optional for a non-Ads feed -
+//   it's optional on commerceBaseFields; this schema overrides it as required).
+// - The legacy alias `is_eligible_ads` and the `is_ads_enabled` trap warning
+//   are inherited from the shared base (commerce-base.ts) since the field
+//   itself now lives there.
 // - Initial catalog upload happens via SFTP through Ads Manager's Feeds UI,
 //   not a public API, so this validator's job (like the plain OpenAI one)
 //   ends at "produce a correctly formatted export file."
@@ -31,26 +34,17 @@ export const openAIAdsFeedSchema = withCommerceRefinements(
 
 export type OpenAIAdsFeedRecord = z.infer<typeof openAIAdsFeedSchema>;
 
-const fieldAliases: FieldAliases = {
-  ...commerceBaseAliases,
-  is_ads_eligible: ["is_eligible_ads"],
-};
-
-// is_ads_enabled looks like a plausible column name but OpenAI's docs
-// explicitly warn it's ignored - flag it instead of letting it silently
-// disappear (Zod strips unknown keys, so today this failed 100% silently).
-const trapAliases: TrapAliases = {
-  is_ads_enabled: 'OpenAI does not read "is_ads_enabled" - it is silently ignored. Rename this column to "is_ads_eligible".',
-};
-
+// Aliases, trap aliases, and boolean-field list are identical to the base -
+// is_ads_eligible's alias/trap entry already lives in commerce-base.ts.
 const targetFields: TargetField[] = [
-  ...commerceBaseTargetFields,
+  // Override the base's optional is_ads_eligible entry with a required one.
+  ...commerceBaseTargetFields.filter((f) => f.name !== "is_ads_eligible"),
   { name: "is_ads_eligible", required: true, description: "Eligible for ChatGPT Ads (must be true to serve ads)" },
 ];
 
 const { validateRecord, validateRecordRaw } = createRecordValidators(
   openAIAdsFeedSchema,
-  fieldAliases,
+  commerceBaseAliases,
   commerceBaseNormalizers,
   commerceBaseDefaults
 );
@@ -62,11 +56,12 @@ export const openAIAdsValidator: ValidatorModule<typeof openAIAdsFeedSchema> = {
   version: "1.0.0",
   supportedFormats: ["jsonl", "csv"],
   schema: openAIAdsFeedSchema,
-  fieldAliases,
+  fieldAliases: commerceBaseAliases,
   fieldNormalizers: commerceBaseNormalizers,
   defaultValues: commerceBaseDefaults,
   targetFields,
-  trapAliases,
+  booleanFields: commerceBaseBooleanFields,
+  trapAliases: commerceBaseTrapAliases,
   validateRecord,
   validateRecordRaw,
 };

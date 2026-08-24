@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { FieldAliases, FieldNormalizers, RecordValidationResult, ValidationIssue } from "../types";
+import type { FieldAliases, FieldNormalizers, RecordValidationResult, TrapAliases, ValidationIssue } from "../types";
 import { normalizeRecord } from "../types";
 
 // Shared building blocks for OpenAI Commerce product feed validators.
@@ -155,6 +155,13 @@ export const commerceBaseFields = {
   // Related Products (Optional)
   related_product_id: z.string().optional(),
   relationship_type: z.string().optional(),
+
+  // Ads (Optional here; the openai-ads validator overrides this as required).
+  // Per developers.openai.com/ads/product-feeds: "Required (Ads); Optional
+  // (non-Ads)". Kept on the base schema (not Ads-only) so a merchant running
+  // ONE feed file through the plain OpenAI validator doesn't have this column
+  // silently stripped from the export by Zod's default unknown-key handling.
+  is_ads_eligible: booleanSchema.optional(),
 };
 
 export const commerceBaseSchema = z.object(commerceBaseFields);
@@ -173,10 +180,13 @@ type CommerceRefinementFields = {
 
 // The two cross-field rules from OpenAI's spec that apply to every commerce
 // feed regardless of platform (checkout eligibility, pre-order availability).
-// Kept as a standalone function (not baked into commerceBaseSchema) because
-// z.object().refine() returns a ZodEffects, which can't be .extend()'d — and
-// the Ads schema needs to extend the base with `is_ads_eligible` before the
-// refinements are applied.
+// Kept as a standalone function (not baked into commerceBaseSchema) so it can
+// be applied as the LAST step, after a platform extends the base with its own
+// fields (e.g. openai-ads adding is_ads_eligible) — refinements should see the
+// final, fully-composed shape. (Verified against zod 4.3.5: .refine() on a
+// ZodObject does NOT block a later .extend() in this version, unlike Zod 3's
+// ZodEffects wrapper — this split isn't required by that constraint, it's
+// just the correct order regardless of Zod's internal API.)
 export function withCommerceRefinements<T extends z.ZodType<CommerceRefinementFields>>(schema: T) {
   return schema
     .refine(
@@ -235,6 +245,30 @@ export const commerceBaseAliases: FieldAliases = {
   // Geo
   target_countries: ["countries", "ship_to_countries", "available_countries"],
   store_country: ["country", "merchant_country", "seller_country"],
+
+  // Ads
+  is_ads_eligible: ["is_eligible_ads"],
+};
+
+// Boolean-typed fields shared by every OpenAI product feed variant - drives
+// the "boolean sent as string" raw-issue warning. Owned here (next to where
+// each field is actually declared as booleanSchema) instead of a separate
+// hardcoded list in validate-client.ts, so adding a boolean field can't
+// silently forget to also register it for that warning.
+export const commerceBaseBooleanFields: string[] = [
+  "is_eligible_search",
+  "is_eligible_checkout",
+  "is_ads_eligible",
+  "listing_has_variations",
+  "accepts_returns",
+  "accepts_exchanges",
+  "is_digital",
+];
+
+// Known-wrong-but-plausible column name shared by every OpenAI product feed
+// variant, since is_ads_eligible now lives on the base schema too.
+export const commerceBaseTrapAliases: TrapAliases = {
+  is_ads_enabled: 'OpenAI does not read "is_ads_enabled" - it is silently ignored. Rename this column to "is_ads_eligible".',
 };
 
 // Normalizers shared by every OpenAI product feed variant: transform values
@@ -353,6 +387,9 @@ export const commerceBaseTargetFields: { name: string; required: boolean; descri
   { name: "store_country", required: true, description: "Store country (ISO)" },
   { name: "material", required: false, description: "Product material" },
   { name: "inventory_quantity", required: false, description: "Stock quantity" },
+  // Optional here; the openai-ads validator's targetFields overrides this
+  // entry as required (filters it out and re-adds it - see openai-ads/schema.ts).
+  { name: "is_ads_eligible", required: false, description: "Eligible for ChatGPT Ads (optional here; required in the Ads validator)" },
 ];
 
 // Builds validateRecord/validateRecordRaw for a given (already-refined) Zod

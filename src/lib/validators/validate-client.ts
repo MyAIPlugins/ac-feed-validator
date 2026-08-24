@@ -56,16 +56,6 @@ export interface ValidateClientOptions {
   chunkSize?: number;
 }
 
-// Boolean fields that should be true booleans, not strings
-const BOOLEAN_FIELDS = [
-  "is_eligible_search",
-  "is_eligible_checkout",
-  "listing_has_variations",
-  "accepts_returns",
-  "accepts_exchanges",
-  "is_digital",
-];
-
 // URL fields that should not contain localhost
 const URL_FIELDS = ["url", "image_url", "seller_url", "return_policy", "seller_privacy_policy", "seller_tos", "warning_url"];
 
@@ -74,7 +64,12 @@ export function detectRawIssues(
   record: Record<string, unknown>,
   fieldAliases: Record<string, string[]>,
   fieldNormalizers: Record<string, (value: unknown) => unknown>,
-  trapAliases?: Record<string, string>
+  trapAliases?: Record<string, string>,
+  // Field names whose schema is boolean-typed. Previously a hardcoded
+  // module-level list here (BOOLEAN_FIELDS) that had to be remembered every
+  // time a validator added a boolean field - moved to each ValidatorModule
+  // (booleanFields) so it can't drift out of sync again.
+  booleanFields: string[] = []
 ): Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> {
   const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> = [];
 
@@ -109,7 +104,7 @@ export function detectRawIssues(
   };
 
   // Check for booleans passed as strings
-  for (const field of BOOLEAN_FIELDS) {
+  for (const field of booleanFields) {
     const found = getFieldValue(field);
     if (found && typeof found.value === "string") {
       const strVal = found.value.toLowerCase();
@@ -352,7 +347,8 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
         mappedRecord,
         validator.fieldAliases,
         validator.fieldNormalizers,
-        validator.trapAliases
+        validator.trapAliases,
+        validator.booleanFields
       );
 
       for (const issue of rawDetected) {
@@ -562,7 +558,8 @@ export async function preValidateClient(
         record,
         validator.fieldAliases,
         validator.fieldNormalizers,
-        validator.trapAliases
+        validator.trapAliases,
+        validator.booleanFields
       );
 
       for (const issue of rawDetected) {

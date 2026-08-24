@@ -67,7 +67,6 @@ describe("openAIAdsValidator", () => {
 
   test("warns when the feed uses the wrong column name is_ads_enabled", () => {
     const record = validAdsRecord({ is_ads_enabled: true });
-    delete (record as Record<string, unknown>).is_ads_eligible;
 
     const issues = detectRawIssues(
       record,
@@ -82,7 +81,10 @@ describe("openAIAdsValidator", () => {
     expect(trapWarning?.problem).toContain("is_ads_eligible");
   });
 
-  test("does not warn about is_ads_enabled for the plain (non-Ads) validator", async () => {
+  test("also warns about is_ads_enabled for the plain (non-Ads) validator", async () => {
+    // is_ads_eligible (and its trap alias) now live on the shared base
+    // schema, so this warning applies to both validators, not just Ads -
+    // see openai/schema.test.ts for the matching case.
     const { openAIValidator } = await import("../openai/schema");
     const record = { is_ads_enabled: true };
 
@@ -93,7 +95,7 @@ describe("openAIAdsValidator", () => {
       openAIValidator.trapAliases
     );
 
-    expect(issues.some((i) => i.field === "is_ads_enabled")).toBe(false);
+    expect(issues.some((i) => i.field === "is_ads_enabled")).toBe(true);
   });
 
   test("exposes is_ads_eligible as a required target field", () => {
