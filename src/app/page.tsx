@@ -12,38 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { extractHeadersClient } from "@/lib/parsers";
 import { validateClient, preValidateClient, getAvailableValidators, type ClientValidationResult, type PreValidationResult, type ValidationProgress } from "@/lib/validators/validate-client";
-
-// OpenAI target fields definition
-const OPENAI_TARGET_FIELDS = [
-  { name: "is_eligible_search", required: true, description: "Enable ChatGPT search" },
-  { name: "is_eligible_checkout", required: true, description: "Enable in-app checkout" },
-  { name: "item_id", required: true, description: "Unique product ID" },
-  { name: "title", required: true, description: "Product name" },
-  { name: "description", required: false, description: "Product description" },
-  { name: "url", required: true, description: "Product page URL" },
-  { name: "brand", required: true, description: "Brand name" },
-  { name: "price", required: true, description: "Regular price" },
-  { name: "currency", required: false, description: "Currency code (ISO 4217)" },
-  { name: "sale_price", required: false, description: "Sale price" },
-  { name: "availability", required: true, description: "Stock status" },
-  { name: "image_url", required: true, description: "Main product image" },
-  { name: "additional_image_urls", required: false, description: "Extra images" },
-  { name: "group_id", required: false, description: "Variant group ID" },
-  { name: "item_group_title", required: false, description: "Group product title" },
-  { name: "listing_has_variations", required: false, description: "Has variants" },
-  { name: "size", required: false, description: "Product size" },
-  { name: "color", required: false, description: "Product color" },
-  { name: "condition", required: false, description: "new/refurbished/used" },
-  { name: "product_category", required: false, description: "Product category" },
-  { name: "store_name", required: false, description: "Merchant name" },
-  { name: "seller_url", required: false, description: "Merchant URL" },
-  { name: "return_policy", required: true, description: "Return policy URL" },
-  { name: "return_window", required: true, description: "Return window in days" },
-  { name: "target_countries", required: true, description: "Target countries (ISO)" },
-  { name: "store_country", required: true, description: "Store country (ISO)" },
-  { name: "material", required: false, description: "Product material" },
-  { name: "inventory_quantity", required: false, description: "Stock quantity" },
-];
+import type { TargetField } from "@/lib/validators/types";
 
 interface Validator {
   id: string;
@@ -52,6 +21,10 @@ interface Validator {
   version: string;
   supportedFormats: string[];
   fieldAliases?: Record<string, string[]>;
+  // Each validator supplies its own mapping-dialog target fields, so the
+  // dialog stays correct when a second (or third) validator is added instead
+  // of silently reusing whichever one was hardcoded first.
+  targetFields?: TargetField[];
 }
 
 export default function Home() {
@@ -766,7 +739,7 @@ export default function Home() {
         open={showMappingDialog}
         onOpenChange={setShowMappingDialog}
         sourceHeaders={sourceHeaders}
-        targetFields={OPENAI_TARGET_FIELDS}
+        targetFields={currentValidator?.targetFields ?? []}
         fieldAliases={currentValidator?.fieldAliases ?? {}}
         onConfirm={handleMappingConfirm}
       />

@@ -70,12 +70,29 @@ const BOOLEAN_FIELDS = [
 const URL_FIELDS = ["url", "image_url", "seller_url", "return_policy", "seller_privacy_policy", "seller_tos", "warning_url"];
 
 // Detect raw issues by comparing original values with what normalization produces
-function detectRawIssues(
+export function detectRawIssues(
   record: Record<string, unknown>,
   fieldAliases: Record<string, string[]>,
-  fieldNormalizers: Record<string, (value: unknown) => unknown>
+  fieldNormalizers: Record<string, (value: unknown) => unknown>,
+  trapAliases?: Record<string, string>
 ): Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> {
   const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> = [];
+
+  // Check for known-wrong-but-plausible column names (e.g. "is_ads_enabled"
+  // instead of "is_ads_eligible") that would otherwise silently do nothing.
+  if (trapAliases) {
+    for (const [trapField, warning] of Object.entries(trapAliases)) {
+      if (record[trapField] !== undefined) {
+        issues.push({
+          field: trapField,
+          original: record[trapField],
+          fixed: undefined,
+          problem: warning,
+          severity: "warning",
+        });
+      }
+    }
+  }
 
   // Helper to get field value (checking aliases too)
   const getFieldValue = (fieldName: string): { value: unknown; actualField: string } | null => {
@@ -334,7 +351,8 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
       const rawDetected = detectRawIssues(
         mappedRecord,
         validator.fieldAliases,
-        validator.fieldNormalizers
+        validator.fieldNormalizers,
+        validator.trapAliases
       );
 
       for (const issue of rawDetected) {
@@ -454,6 +472,7 @@ export function getAvailableValidators() {
       version: v.version,
       supportedFormats: v.supportedFormats,
       fieldAliases: v.fieldAliases,
+      targetFields: v.targetFields,
     } : null;
   }).filter(Boolean);
 }
@@ -542,7 +561,8 @@ export async function preValidateClient(
       const rawDetected = detectRawIssues(
         record,
         validator.fieldAliases,
-        validator.fieldNormalizers
+        validator.fieldNormalizers,
+        validator.trapAliases
       );
 
       for (const issue of rawDetected) {

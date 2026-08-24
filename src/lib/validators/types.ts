@@ -42,6 +42,16 @@ export type FieldNormalizer = (value: unknown) => unknown;
 // Field normalizers: target field -> normalizer function
 export type FieldNormalizers = Record<string, FieldNormalizer>;
 
+// Target field metadata for the field-mapping dialog: name, whether it's
+// required, and a short human-readable description.
+export type TargetField = { name: string; required: boolean; description?: string };
+
+// Known-wrong-but-plausible source column names that silently do nothing
+// once mapped (e.g. "is_ads_enabled" instead of "is_ads_eligible" - OpenAI
+// ignores it, Zod strips it, and the user gets no signal it was a no-op).
+// Maps the trap column name -> a human-readable warning to surface it.
+export type TrapAliases = Record<string, string>;
+
 export interface ValidatorModule<T extends z.ZodTypeAny = z.ZodTypeAny> {
   id: string;
   name: string;
@@ -52,6 +62,11 @@ export interface ValidatorModule<T extends z.ZodTypeAny = z.ZodTypeAny> {
   fieldAliases: FieldAliases;
   fieldNormalizers: FieldNormalizers;
   defaultValues?: Record<string, unknown>;
+  // Fields the field-mapping dialog should offer as mapping targets for
+  // THIS validator. Each validator supplies its own list so the dialog
+  // never falls out of sync with a schema it doesn't own.
+  targetFields: TargetField[];
+  trapAliases?: TrapAliases;
   validateRecord: (record: Record<string, unknown>, row: number) => RecordValidationResult;
   // Validate without applying normalizations (for raw feed analysis)
   validateRecordRaw?: (record: Record<string, unknown>, row: number) => RecordValidationResult;
