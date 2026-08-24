@@ -142,6 +142,8 @@ vercel
 
 This app is a static site with zero server-side processing. You can verify this by checking the source code or monitoring network requests.
 
+**Delta Feeds are not supported by design** - OpenAI's Delta Feeds API (`PATCH /feeds/{feed_id}/products`) requires a live call authenticated with an Ads API key. Supporting it here would mean putting that key in a static, client-side page, which breaks the 100%-client-side / data-never-leaves-your-browser guarantee above. This tool validates and exports full feed files for manual upload instead.
+
 ## Status
 
 ⚠️ **Early Release (v1.0)** - This is the first version and may have bugs or unexpected behavior with feed generators different from the ones tested. More platform compatibility and improvements are coming soon as I need to use this tool for other clients with different e-commerce platforms.

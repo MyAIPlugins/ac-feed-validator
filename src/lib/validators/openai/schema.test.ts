@@ -108,7 +108,8 @@ describe("openAIValidator", () => {
       record,
       openAIValidator.fieldAliases,
       openAIValidator.fieldNormalizers,
-      openAIValidator.trapAliases
+      openAIValidator.trapAliases,
+      openAIValidator.booleanFields
     );
 
     const trapWarning = issues.find((i) => i.field === "is_ads_enabled");

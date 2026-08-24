@@ -64,12 +64,13 @@ export function detectRawIssues(
   record: Record<string, unknown>,
   fieldAliases: Record<string, string[]>,
   fieldNormalizers: Record<string, (value: unknown) => unknown>,
-  trapAliases?: Record<string, string>,
+  trapAliases: Record<string, string> | undefined,
   // Field names whose schema is boolean-typed. Previously a hardcoded
   // module-level list here (BOOLEAN_FIELDS) that had to be remembered every
   // time a validator added a boolean field - moved to each ValidatorModule
-  // (booleanFields) so it can't drift out of sync again.
-  booleanFields: string[] = []
+  // (booleanFields) so it can't drift out of sync again. Required (no
+  // default) so a caller can't silently skip the boolean-as-string check.
+  booleanFields: string[]
 ): Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> {
   const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> = [];
 
