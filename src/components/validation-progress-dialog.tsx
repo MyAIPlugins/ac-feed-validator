@@ -86,7 +86,7 @@ export function ValidationProgressDialog({
           {/* Stats grid */}
           <div className="grid grid-cols-2 gap-3 text-center">
             <div className="p-2 rounded-lg bg-slate-500/10 border border-slate-500/20">
-              <p className="text-lg font-bold text-slate-200">
+              <p className="text-lg font-bold text-foreground">
                 {progress?.processedRows.toLocaleString() ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">
@@ -94,19 +94,19 @@ export function ValidationProgressDialog({
               </p>
             </div>
             <div className="p-2 rounded-lg bg-green-500/10 border border-green-500/20">
-              <p className="text-lg font-bold text-green-400">
+              <p className="text-lg font-bold text-green-700 dark:text-green-400">
                 {progress?.validRows.toLocaleString() ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">Valid</p>
             </div>
             <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
-              <p className="text-lg font-bold text-red-400">
+              <p className="text-lg font-bold text-red-700 dark:text-red-400">
                 {progress?.invalidRows.toLocaleString() ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">Invalid</p>
             </div>
             <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-              <p className="text-lg font-bold text-amber-400">
+              <p className="text-lg font-bold text-amber-700 dark:text-amber-400">
                 {((progress?.errorCount ?? 0) + (progress?.warningCount ?? 0)).toLocaleString()}
               </p>
               <p className="text-xs text-muted-foreground">
