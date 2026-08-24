@@ -38,3 +38,7 @@ next-env.d.ts
 
 # Bun
 bun.lockb
+
+# INTERNAL
+.handover/
+.serena/
