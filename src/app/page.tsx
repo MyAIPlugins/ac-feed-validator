@@ -12,38 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { extractHeadersClient } from "@/lib/parsers";
 import { validateClient, preValidateClient, getAvailableValidators, type ClientValidationResult, type PreValidationResult, type ValidationProgress } from "@/lib/validators/validate-client";
-
-// OpenAI target fields definition
-const OPENAI_TARGET_FIELDS = [
-  { name: "is_eligible_search", required: true, description: "Enable ChatGPT search" },
-  { name: "is_eligible_checkout", required: true, description: "Enable in-app checkout" },
-  { name: "item_id", required: true, description: "Unique product ID" },
-  { name: "title", required: true, description: "Product name" },
-  { name: "description", required: false, description: "Product description" },
-  { name: "url", required: true, description: "Product page URL" },
-  { name: "brand", required: true, description: "Brand name" },
-  { name: "price", required: true, description: "Regular price" },
-  { name: "currency", required: false, description: "Currency code (ISO 4217)" },
-  { name: "sale_price", required: false, description: "Sale price" },
-  { name: "availability", required: true, description: "Stock status" },
-  { name: "image_url", required: true, description: "Main product image" },
-  { name: "additional_image_urls", required: false, description: "Extra images" },
-  { name: "group_id", required: false, description: "Variant group ID" },
-  { name: "item_group_title", required: false, description: "Group product title" },
-  { name: "listing_has_variations", required: false, description: "Has variants" },
-  { name: "size", required: false, description: "Product size" },
-  { name: "color", required: false, description: "Product color" },
-  { name: "condition", required: false, description: "new/refurbished/used" },
-  { name: "product_category", required: false, description: "Product category" },
-  { name: "store_name", required: false, description: "Merchant name" },
-  { name: "seller_url", required: false, description: "Merchant URL" },
-  { name: "return_policy", required: true, description: "Return policy URL" },
-  { name: "return_window", required: true, description: "Return window in days" },
-  { name: "target_countries", required: true, description: "Target countries (ISO)" },
-  { name: "store_country", required: true, description: "Store country (ISO)" },
-  { name: "material", required: false, description: "Product material" },
-  { name: "inventory_quantity", required: false, description: "Stock quantity" },
-];
+import type { TargetField } from "@/lib/validators/types";
 
 interface Validator {
   id: string;
@@ -52,6 +21,11 @@ interface Validator {
   version: string;
   supportedFormats: string[];
   fieldAliases?: Record<string, string[]>;
+  // Each validator supplies its own mapping-dialog target fields, so the
+  // dialog stays correct when a second (or third) validator is added instead
+  // of silently reusing whichever one was hardcoded first. getAvailableValidators()
+  // always includes this now, so it's not optional here.
+  targetFields: TargetField[];
 }
 
 export default function Home() {
@@ -89,6 +63,39 @@ export default function Home() {
     }
   }, []);
 
+  // Runs pre-validation for a given file against a given validator id. Pulled
+  // out of handleFileSelect so handleValidatorChange can also trigger it when
+  // the user switches validators after a file is already selected - without
+  // this, switching validators left stale pre-validation results (computed
+  // against the OLD validator) on screen.
+  const runPreValidation = async (selectedFile: File, validatorId: string) => {
+    preValidationAbortRef.current?.abort();
+    preValidationAbortRef.current = new AbortController();
+
+    setIsPreValidating(true);
+    setShowPreValidationDialog(true);
+    setPreValidationProgress(null);
+
+    try {
+      const preResult = await preValidateClient({
+        file: selectedFile,
+        validatorId,
+        signal: preValidationAbortRef.current.signal,
+        onProgress: (progress) => {
+          setPreValidationProgress(progress);
+        },
+      });
+      setPreValidation(preResult);
+    } catch (preErr) {
+      if (preErr instanceof Error && preErr.name !== "AbortError") {
+        console.error("Pre-validation failed:", preErr);
+      }
+    } finally {
+      setIsPreValidating(false);
+      setShowPreValidationDialog(false);
+    }
+  };
+
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
     setResult(null);
@@ -101,37 +108,26 @@ export default function Home() {
       const headers = await extractHeadersClient(selectedFile);
       setSourceHeaders(headers);
 
-      // Run pre-validation if we have a validator selected
       if (selectedValidator) {
-        // Cancel any existing pre-validation
-        preValidationAbortRef.current?.abort();
-        preValidationAbortRef.current = new AbortController();
-
-        setIsPreValidating(true);
-        setShowPreValidationDialog(true);
-        setPreValidationProgress(null);
-
-        try {
-          const preResult = await preValidateClient({
-            file: selectedFile,
-            validatorId: selectedValidator,
-            signal: preValidationAbortRef.current.signal,
-            onProgress: (progress) => {
-              setPreValidationProgress(progress);
-            },
-          });
-          setPreValidation(preResult);
-        } catch (preErr) {
-          if (preErr instanceof Error && preErr.name !== "AbortError") {
-            console.error("Pre-validation failed:", preErr);
-          }
-        } finally {
-          setIsPreValidating(false);
-          setShowPreValidationDialog(false);
-        }
+        await runPreValidation(selectedFile, selectedValidator);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read file headers");
+    }
+  };
+
+  // Switching validators changes the schema (and boolean/trap-alias rules)
+  // records are checked against, so any result computed under the previous
+  // validator is stale and must be cleared - then re-run pre-validation
+  // against the new validator if a file is already selected.
+  const handleValidatorChange = (id: string) => {
+    setSelectedValidator(id);
+    if (file) {
+      setResult(null);
+      setError(null);
+      setCustomMappings(null);
+      setPreValidation(null);
+      void runPreValidation(file, id);
     }
   };
 
@@ -281,7 +277,7 @@ export default function Home() {
               <ValidatorSelect
                 validators={validators}
                 selected={selectedValidator}
-                onSelect={setSelectedValidator}
+                onSelect={handleValidatorChange}
                 disabled={isValidating}
               />
             </CardContent>
@@ -766,7 +762,7 @@ export default function Home() {
         open={showMappingDialog}
         onOpenChange={setShowMappingDialog}
         sourceHeaders={sourceHeaders}
-        targetFields={OPENAI_TARGET_FIELDS}
+        targetFields={currentValidator?.targetFields ?? []}
         fieldAliases={currentValidator?.fieldAliases ?? {}}
         onConfirm={handleMappingConfirm}
       />

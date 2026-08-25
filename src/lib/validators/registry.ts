@@ -1,5 +1,6 @@
 import type { ValidatorModule } from "./types";
 import { openAIValidator } from "./openai/schema";
+import { openAIAdsValidator } from "./openai-ads/schema";
 
 const validators: Map<string, ValidatorModule> = new Map();
 
@@ -21,3 +22,4 @@ export function getValidatorIds(): string[] {
 
 // Register all validators
 registerValidator(openAIValidator);
+registerValidator(openAIAdsValidator);

@@ -56,26 +56,39 @@ export interface ValidateClientOptions {
   chunkSize?: number;
 }
 
-// Boolean fields that should be true booleans, not strings
-const BOOLEAN_FIELDS = [
-  "is_eligible_search",
-  "is_eligible_checkout",
-  "listing_has_variations",
-  "accepts_returns",
-  "accepts_exchanges",
-  "is_digital",
-];
-
 // URL fields that should not contain localhost
 const URL_FIELDS = ["url", "image_url", "seller_url", "return_policy", "seller_privacy_policy", "seller_tos", "warning_url"];
 
 // Detect raw issues by comparing original values with what normalization produces
-function detectRawIssues(
+export function detectRawIssues(
   record: Record<string, unknown>,
   fieldAliases: Record<string, string[]>,
-  fieldNormalizers: Record<string, (value: unknown) => unknown>
+  fieldNormalizers: Record<string, (value: unknown) => unknown>,
+  trapAliases: Record<string, string> | undefined,
+  // Field names whose schema is boolean-typed. Previously a hardcoded
+  // module-level list here (BOOLEAN_FIELDS) that had to be remembered every
+  // time a validator added a boolean field - moved to each ValidatorModule
+  // (booleanFields) so it can't drift out of sync again. Required (no
+  // default) so a caller can't silently skip the boolean-as-string check.
+  booleanFields: string[]
 ): Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> {
   const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> = [];
+
+  // Check for known-wrong-but-plausible column names (e.g. "is_ads_enabled"
+  // instead of "is_ads_eligible") that would otherwise silently do nothing.
+  if (trapAliases) {
+    for (const [trapField, warning] of Object.entries(trapAliases)) {
+      if (record[trapField] !== undefined) {
+        issues.push({
+          field: trapField,
+          original: record[trapField],
+          fixed: undefined,
+          problem: warning,
+          severity: "warning",
+        });
+      }
+    }
+  }
 
   // Helper to get field value (checking aliases too)
   const getFieldValue = (fieldName: string): { value: unknown; actualField: string } | null => {
@@ -92,7 +105,7 @@ function detectRawIssues(
   };
 
   // Check for booleans passed as strings
-  for (const field of BOOLEAN_FIELDS) {
+  for (const field of booleanFields) {
     const found = getFieldValue(field);
     if (found && typeof found.value === "string") {
       const strVal = found.value.toLowerCase();
@@ -334,7 +347,9 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
       const rawDetected = detectRawIssues(
         mappedRecord,
         validator.fieldAliases,
-        validator.fieldNormalizers
+        validator.fieldNormalizers,
+        validator.trapAliases,
+        validator.booleanFields
       );
 
       for (const issue of rawDetected) {
@@ -454,6 +469,7 @@ export function getAvailableValidators() {
       version: v.version,
       supportedFormats: v.supportedFormats,
       fieldAliases: v.fieldAliases,
+      targetFields: v.targetFields,
     } : null;
   }).filter(Boolean);
 }
@@ -542,7 +558,9 @@ export async function preValidateClient(
       const rawDetected = detectRawIssues(
         record,
         validator.fieldAliases,
-        validator.fieldNormalizers
+        validator.fieldNormalizers,
+        validator.trapAliases,
+        validator.booleanFields
       );
 
       for (const issue of rawDetected) {
