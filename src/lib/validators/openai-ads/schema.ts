@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import type { ValidatorModule, TargetField } from "../types";
 import {
   commerceBaseSchema,
@@ -13,6 +13,14 @@ import {
   createRecordValidators,
   booleanSchema,
 } from "../shared/commerce-base";
+
+// Google-compatible custom_label_0..custom_label_4 - not part of the base
+// commerce schema (they're Ads-specific), but per developers.openai.com/commerce/specs/file-upload/products:
+// "For Ads feeds, OpenAI retains selected Google-compatible fields for
+// product filtering in Ads campaigns. This dynamically configured set
+// currently includes custom_label_0 through custom_label_4 and a few other
+// key columns." Ads-only, so they live on this schema, not commerce-base.ts.
+const CUSTOM_LABEL_FIELDS = ["custom_label_0", "custom_label_1", "custom_label_2", "custom_label_3", "custom_label_4"] as const;
 
 // OpenAI Ads product feed - same base commerce fields as the plain
 // "OpenAI Product Feed" validator, plus is_ads_eligible required.
@@ -30,6 +38,11 @@ import {
 export const openAIAdsFeedSchema = withCommerceRefinements(
   commerceBaseSchema.extend({
     is_ads_eligible: booleanSchema,
+    custom_label_0: z.string().optional(),
+    custom_label_1: z.string().optional(),
+    custom_label_2: z.string().optional(),
+    custom_label_3: z.string().optional(),
+    custom_label_4: z.string().optional(),
   })
 );
 
@@ -41,7 +54,13 @@ const targetFields: TargetField[] = [
   // Override the base's optional is_ads_eligible entry with a required one.
   ...commerceBaseTargetFields.filter((f) => f.name !== "is_ads_eligible"),
   { name: "is_ads_eligible", required: true, description: "Eligible for ChatGPT Ads (must be true to serve ads)" },
+  ...CUSTOM_LABEL_FIELDS.map((name) => ({ name, required: false, description: "Ads product-set filtering label" })),
 ];
+
+// custom_label_0..4 are additional Ads-only field names on top of the shared
+// base's fieldNames - without this, they'd be flagged as "not part of the
+// spec" by the ignored-column check even though this validator accepts them.
+const fieldNames = [...commerceBaseFieldNames, ...CUSTOM_LABEL_FIELDS];
 
 const { validateRecord, validateRecordRaw } = createRecordValidators(
   openAIAdsFeedSchema,
@@ -63,11 +82,7 @@ export const openAIAdsValidator: ValidatorModule<typeof openAIAdsFeedSchema> = {
   targetFields,
   booleanFields: commerceBaseBooleanFields,
   trapAliases: commerceBaseTrapAliases,
-  // is_ads_eligible is already a key in commerceBaseFields (optional there);
-  // extend() here only changes its type to required, it doesn't add a new
-  // field name - so the base's field name list is accurate for this
-  // validator too.
-  fieldNames: commerceBaseFieldNames,
+  fieldNames,
   validateRecord,
   validateRecordRaw,
 };

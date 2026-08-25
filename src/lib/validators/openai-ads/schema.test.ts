@@ -68,14 +68,7 @@ describe("openAIAdsValidator", () => {
   test("warns when the feed uses the wrong column name is_ads_enabled", () => {
     const record = validAdsRecord({ is_ads_enabled: true });
 
-    const issues = detectRawIssues(
-      record,
-      openAIAdsValidator.fieldAliases,
-      openAIAdsValidator.fieldNormalizers,
-      openAIAdsValidator.trapAliases,
-      openAIAdsValidator.booleanFields,
-      openAIAdsValidator.fieldNames
-    );
+    const issues = detectRawIssues(record, openAIAdsValidator);
 
     const trapWarning = issues.find((i) => i.field === "is_ads_enabled");
     expect(trapWarning).toBeDefined();
@@ -90,14 +83,7 @@ describe("openAIAdsValidator", () => {
     const { openAIValidator } = await import("../openai/schema");
     const record = { is_ads_enabled: true };
 
-    const issues = detectRawIssues(
-      record,
-      openAIValidator.fieldAliases,
-      openAIValidator.fieldNormalizers,
-      openAIValidator.trapAliases,
-      openAIValidator.booleanFields,
-      openAIValidator.fieldNames
-    );
+    const issues = detectRawIssues(record, openAIValidator);
 
     expect(issues.some((i) => i.field === "is_ads_enabled")).toBe(true);
   });
@@ -106,5 +92,41 @@ describe("openAIAdsValidator", () => {
     const field = openAIAdsValidator.targetFields.find((f) => f.name === "is_ads_eligible");
     expect(field).toBeDefined();
     expect(field?.required).toBe(true);
+  });
+
+  describe("custom_label_0..4 (Ads-only, per PR #3 addendum)", () => {
+    test("accepts all five custom_label fields", () => {
+      const result = openAIAdsValidator.validateRecord(
+        validAdsRecord({
+          custom_label_0: "summer",
+          custom_label_1: "clearance",
+          custom_label_2: "top-seller",
+          custom_label_3: "new",
+          custom_label_4: "seasonal",
+        }),
+        1
+      );
+      expect(result.isValid).toBe(true);
+      expect(result.data?.custom_label_0).toBe("summer");
+    });
+
+    test("does not flag custom_label_0 as an ignored/unrecognized column on the Ads validator", () => {
+      const record = validAdsRecord({ custom_label_0: "summer" });
+      const issues = detectRawIssues(record, openAIAdsValidator);
+      expect(issues.some((i) => i.field === "custom_label_0" && i.kind === "ignored")).toBe(false);
+    });
+
+    test("flags custom_label_0 as an ignored column on the plain (non-Ads) validator", async () => {
+      // custom_label_0..4 are Ads-only per the spec - the plain validator's
+      // fieldNames shouldn't include them.
+      const { openAIValidator } = await import("../openai/schema");
+      const record = { ...validAdsRecord(), custom_label_0: "summer" };
+      delete (record as Record<string, unknown>).is_ads_eligible;
+
+      const issues = detectRawIssues(record, openAIValidator);
+      const info = issues.find((i) => i.field === "custom_label_0");
+      expect(info).toBeDefined();
+      expect(info?.kind).toBe("ignored");
+    });
   });
 });

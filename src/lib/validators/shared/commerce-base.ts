@@ -14,32 +14,43 @@ import { normalizeRecord } from "../types";
 // duplicate ~370 lines of field definitions. Extracted from the original
 // openai/schema.ts with NO behavior changes.
 
-// ISO 4217 currency codes (common ones)
-export const currencyCodes = [
-  "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "CNY", "HKD", "NZD",
-  "SEK", "KRW", "SGD", "NOK", "MXN", "INR", "RUB", "ZAR", "BRL", "TWD",
-] as const;
-
-// ISO 3166-1 alpha-2 country codes (common ones)
-export const countryCodes = [
-  "US", "GB", "CA", "AU", "DE", "FR", "IT", "ES", "JP", "CN",
-  "KR", "IN", "BR", "MX", "NL", "SE", "NO", "DK", "FI", "PL",
-  "AT", "BE", "CH", "IE", "PT", "NZ", "SG", "HK", "TW", "ZA",
-] as const;
+// Country/currency codes are validated by FORMAT, not against a curated
+// subset. An earlier version of this file gated price/store_country against
+// small hardcoded lists (20 currencies, 30 countries) - Alan caught this in
+// PR #3 review: DKK/PLN/CZK/AED and GR/CZ/HU/RO all rejected as "invalid"
+// despite being real ISO codes we have clients in. The spec's own Validation
+// Rules confirm price/sale_price use the full ISO 4217 set and
+// target_countries/store_country use the full ISO 3166-1 alpha-2 set - not a
+// subset - and a hand-maintained list is exactly the "can drift out of sync"
+// problem this codebase already fixed once for booleanFields/fieldNames.
+// Format validation has no list to go stale.
+const CURRENCY_CODE_RE = /^[A-Z]{3}$/;
+const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
 
 export const availabilityValues = ["in_stock", "out_of_stock", "pre_order", "backorder", "unknown"] as const;
 
 export const urlSchema = z.string().url().max(2048);
 
 // Price format. Per developers.openai.com/commerce/specs/file-upload/products
-// (fetched 2026-08-25): "Number + currency, ISO 4217, e.g. '79.99 USD'. Must
-// include currency code." A bare number can never carry that, so (unlike the
-// original version of this schema) a plain number is no longer accepted -
-// this is an intentional breaking change; see the PR description for the
-// old-vs-new differential.
+// (fetched 2026-08-25, re-verified 2026-08-25 with every field's expanded
+// Validation Rules): "Number + currency" example "79.99 USD", Supported
+// Values "ISO 4217", Validation Rules "Must include currency code". A bare
+// number can never carry that, so (unlike the original version of this
+// schema) a plain number is no longer accepted - this is an intentional
+// breaking change; see the PR description for the old-vs-new differential.
 function isValidPriceWithCurrency(value: string): boolean {
   const match = value.match(/^\d+(\.\d{1,2})?\s([A-Z]{3})$/);
-  return !!match && (currencyCodes as readonly string[]).includes(match[2]);
+  return !!match && CURRENCY_CODE_RE.test(match[2]);
+}
+
+// Extracts the numeric amount from a validated "NN.NN CUR" string, for
+// cross-field comparisons (e.g. sale_price <= price). Returns null for
+// anything that isn't already a valid price string - callers should only
+// compare when both sides parse.
+function priceAmount(value: string | undefined): number | null {
+  if (!value) return null;
+  const match = value.match(/^(\d+(?:\.\d{1,2})?)\s[A-Z]{3}$/);
+  return match ? Number(match[1]) : null;
 }
 
 export const priceSchema = z.string().min(1).refine(isValidPriceWithCurrency, {
@@ -79,10 +90,22 @@ export const booleanSchema = z.union([
   return ["true", "TRUE", "True", "1"].includes(v);
 });
 
+// Fields the spec defines as a structured list/object (q_and_a, reviews,
+// variant_dict, ads_metadata) but that a raw CSV/JSONL row may deliver
+// either as a pre-serialized string or as already-parsed JSON. Per Alan's
+// review: "loose inner shape is fine; rejecting valid JSONL is not" - these
+// deliberately don't pin down the item/object shape any tighter than the
+// spec itself does.
+const stringOrArraySchema = z.union([z.string(), z.array(z.unknown())]).optional();
+const stringOrObjectSchema = z.union([z.string(), z.record(z.string(), z.unknown())]).optional();
+
 // Base commerce fields shared by every OpenAI product feed variant.
 //
 // Field set verified against developers.openai.com/commerce/specs/file-upload/products
-// (fetched 2026-08-25, 107 fields on the live page). Three renames below
+// (fetched 2026-08-25, re-verified 2026-08-25 by expanding every field card's
+// "Show more" detail in the live DOM - the page's own "All fields (79)"
+// toggle is the field count; an earlier revision of this comment said 107,
+// which was never a real count from this page). Three renames below
 // (seller_name, return_deadline_in_days, sale_price_start_date/end_date)
 // replace names this schema used before that didn't match the spec - the old
 // names are kept working as aliases (see commerceBaseAliases) so existing
@@ -116,10 +139,15 @@ export const commerceBaseFields = {
 
   // Availability (Required)
   availability: z.enum(availabilityValues),
-  // Required when availability is pre_order OR backorder - enforced in
-  // withCommerceRefinements below. Per spec: the field table row only says
-  // "Required if availability=pre_order", but the page's own notes add
-  // "Include availability_date when availability is preorder or backorder".
+  // Required when availability is pre_order - enforced in
+  // withCommerceRefinements below. Per spec, the main Feed Reference table's
+  // row is explicit: "Required if availability=pre_order" - that's this
+  // schema. The "preorder or backorder" wording lives in a DIFFERENT section
+  // ("Google-compatible product data feeds" - a separate input-format parser
+  // for feeds using Google Shopping's field names, which this tool doesn't
+  // implement), not in this table. Re-verified 2026-08-25 directly against
+  // the live page; backorder-without-date is a warning, not a hard error -
+  // see the raw-issue check in validate-client.ts.
   availability_date: dateSchema.optional(),
   expiration_date: dateSchema.optional(),
 
@@ -136,10 +164,13 @@ export const commerceBaseFields = {
     { message: "Avoid using all-caps for group titles" }
   ).optional(),
   listing_has_variations: booleanSchema.optional(),
-  variant_dict: z.string().optional(),
-  size: z.string().max(100).optional(),
+  // variant_dict: spec type is "Object" (JSON object with string values), but
+  // raw CSV/JSONL rows may deliver it as a pre-serialized string - accept
+  // either rather than rejecting valid JSONL that already parsed it.
+  variant_dict: stringOrObjectSchema,
+  size: z.string().max(20).optional(),
   color: z.string().max(40).optional(),
-  size_system: z.string().optional(),
+  size_system: z.string().regex(COUNTRY_CODE_RE, "size_system must be a 2-letter ISO 3166-1 alpha-2 country code").optional(),
   gender: z.enum(["male", "female", "unisex"]).optional(),
   offer_id: z.string().optional(),
 
@@ -171,20 +202,24 @@ export const commerceBaseFields = {
   is_digital: booleanSchema.optional(),
 
   // Geo Targeting (Required)
-  // Spec: List, Required, "first entry used" - a comma/array of countries is
-  // accepted for compatibility, but OpenAI itself only reads the first entry.
+  // Spec: List, Required, "first entry used", Validation Rules "Use ISO
+  // 3166-1 alpha-2 codes" - a comma/array of countries is accepted for
+  // compatibility, but OpenAI itself only reads the first entry. Tightened
+  // from a bare min(2)-chars check (which wrongly accepted 3-letter and
+  // full-name values) to the actual 2-letter format, same fix class as the
+  // store_country blocker below.
   target_countries: z.union([
-    z.string().min(2),
-    z.array(z.string().min(2)).min(1),
+    z.string().regex(COUNTRY_CODE_RE, "target_countries must use ISO 3166-1 alpha-2 codes"),
+    z.array(z.string().regex(COUNTRY_CODE_RE, "target_countries must use ISO 3166-1 alpha-2 codes")).min(1),
   ]),
-  store_country: z.enum(countryCodes).optional(),
+  store_country: z.string().regex(COUNTRY_CODE_RE, "store_country must be a 2-letter ISO 3166-1 alpha-2 code").optional(),
   geo_price: z.string().optional(),
   geo_availability: z.string().optional(),
 
   // Item Information (Optional)
   condition: z.enum(["new", "refurbished", "used"]).optional(),
   product_category: z.string().optional(),
-  material: z.string().optional(),
+  material: z.string().max(100).optional(),
   dimensions: z.string().optional(),
   length: z.string().optional(),
   width: z.string().optional(),
@@ -197,7 +232,10 @@ export const commerceBaseFields = {
 
   // Performance (Optional)
   popularity_score: z.union([z.number(), z.string().regex(/^\d+(\.\d+)?$/)]).optional(),
-  return_rate: z.union([z.number(), z.string().regex(/^\d+(\.\d+)?$/)]).optional(),
+  // Spec example is "2%" (Validation Rules: "0-100%") - a percent string,
+  // despite the Data Type column saying "Number". Accept an optional
+  // trailing "%" so the spec's own example doesn't get rejected.
+  return_rate: z.union([z.number(), z.string().regex(/^\d+(\.\d+)?%?$/)]).optional(),
 
   // Compliance (Optional)
   warning: z.string().optional(),
@@ -215,12 +253,18 @@ export const commerceBaseFields = {
     z.number().min(0).max(5),
     z.string().regex(/^[0-5](\.\d+)?$/),
   ]).optional(),
-  q_and_a: z.string().optional(),
-  reviews: z.string().optional(),
+  // q_and_a / reviews: spec type is "List" (JSON array of objects), but raw
+  // CSV/JSONL rows may deliver either a pre-serialized string or already-
+  // parsed JSON - see stringOrArraySchema above.
+  q_and_a: stringOrArraySchema,
+  reviews: stringOrArraySchema,
 
   // Related Products (Optional)
   related_product_id: z.string().optional(),
-  relationship_type: z.string().optional(),
+  relationship_type: z.enum([
+    "part_of_set", "required_part", "often_bought_with",
+    "substitute", "different_brand", "accessory",
+  ]).optional(),
 
   // Ads (Optional here; the openai-ads validator overrides this as required).
   // Per developers.openai.com/ads/product-feeds: "Required (Ads); Optional
@@ -228,14 +272,17 @@ export const commerceBaseFields = {
   // ONE feed file through the plain OpenAI validator doesn't have this column
   // silently stripped from the export by Zod's default unknown-key handling.
   is_ads_eligible: booleanSchema.optional(),
-  ads_metadata: z.string().optional(),
+  // ads_metadata: spec type is "Object" (JSON object, string keys/values) -
+  // see stringOrObjectSchema above.
+  ads_metadata: stringOrObjectSchema,
 };
 
-// variant_dict, reviews, geo_price, geo_availability and ads_metadata are
-// structured (JSON object / list / region-keyed) in the spec. Raw feed rows
-// (CSV/JSONL) give us these as plain strings, and the spec doesn't fully
-// pin down their sub-shape - kept as free-form strings deliberately rather
-// than guessing a stricter shape that might reject valid data.
+// q_and_a, reviews, variant_dict and ads_metadata accept string OR
+// array/object (see stringOrArraySchema/stringOrObjectSchema above) since
+// raw JSONL rows may already carry parsed JSON. geo_price and
+// geo_availability are region-keyed compound text ("79.99 USD (California)",
+// "in_stock (Texas), out_of_stock (New York)") - the spec doesn't pin down a
+// stricter shape for either, so they stay free-form strings.
 
 export const commerceBaseSchema = z.object(commerceBaseFields);
 
@@ -246,12 +293,25 @@ export const commerceBaseFieldNames: string[] = Object.keys(commerceBaseFields);
 // commerceBaseFields (with or without extra fields like is_ads_eligible)
 // satisfies this.
 type CommerceRefinementFields = {
+  is_eligible_search: boolean;
   is_eligible_checkout: boolean;
   seller_privacy_policy?: string;
   seller_tos?: string;
   seller_name?: string;
   availability: string;
   availability_date?: string;
+  price: string;
+  sale_price?: string;
+  length?: string;
+  width?: string;
+  height?: string;
+  dimensions_unit?: string;
+  weight?: string;
+  item_weight_unit?: string;
+  unit_pricing_measure?: string;
+  base_measure?: string;
+  pickup_method?: string;
+  pickup_sla?: string;
 };
 
 // The two cross-field rules from OpenAI's spec that apply to every commerce
@@ -277,15 +337,78 @@ export function withCommerceRefinements<T extends z.ZodType<CommerceRefinementFi
     .refine(
       (data: z.infer<T>) => {
         // Per developers.openai.com/commerce/specs/file-upload/products
-        // (fetched 2026-08-25): "Include availability_date when availability
-        // is preorder or backorder" - the field table row alone only
-        // mentions pre_order, but the page's own note covers both.
-        if (data.availability === "pre_order" || data.availability === "backorder") {
+        // (fetched 2026-08-25): "is_eligible_search must be true for
+        // is_eligible_checkout to be enabled for the product."
+        if (data.is_eligible_checkout) {
+          return data.is_eligible_search === true;
+        }
+        return true;
+      },
+      { message: "is_eligible_checkout requires is_eligible_search to also be true" }
+    )
+    .refine(
+      (data: z.infer<T>) => {
+        // Main Feed Reference table row: availability_date "Required if
+        // availability=pre_order". Backorder-without-date is a warning
+        // (raw-issue check in validate-client.ts), not a hard error here -
+        // see the field comment above availability_date for why.
+        if (data.availability === "pre_order") {
           return !!data.availability_date;
         }
         return true;
       },
-      { message: "Pre-order and backorder products require availability_date" }
+      { message: "Pre-order products require availability_date" }
+    )
+    .refine(
+      (data: z.infer<T>) => {
+        // Validation Rules on sale_price: "Must be less than or equal to
+        // price." Only compares when both sides are already valid price
+        // strings - a malformed price/sale_price fails its own field check.
+        const price = priceAmount(data.price);
+        const sale = priceAmount(data.sale_price);
+        if (price === null || sale === null) return true;
+        return sale <= price;
+      },
+      { message: "sale_price must be less than or equal to price" }
+    )
+    .refine(
+      (data: z.infer<T>) => {
+        // dimensions_unit "Dependencies: Required if any of length, width,
+        // height are provided."
+        if (data.length || data.width || data.height) {
+          return !!data.dimensions_unit;
+        }
+        return true;
+      },
+      { message: "dimensions_unit is required when length, width, or height is provided" }
+    )
+    .refine(
+      (data: z.infer<T>) => {
+        // item_weight_unit "Dependencies: Required if weight is provided."
+        if (data.weight) {
+          return !!data.item_weight_unit;
+        }
+        return true;
+      },
+      { message: "item_weight_unit is required when weight is provided" }
+    )
+    .refine(
+      (data: z.infer<T>) => {
+        // "unit_pricing_measure / base_measure" - Validation Rules: "Both
+        // fields required together."
+        return !!data.unit_pricing_measure === !!data.base_measure;
+      },
+      { message: "unit_pricing_measure and base_measure must be provided together" }
+    )
+    .refine(
+      (data: z.infer<T>) => {
+        // pickup_sla "Dependencies: Requires pickup_method."
+        if (data.pickup_sla) {
+          return !!data.pickup_method;
+        }
+        return true;
+      },
+      { message: "pickup_sla requires pickup_method to also be set" }
     );
 }
 
@@ -312,7 +435,7 @@ export const commerceBaseAliases: FieldAliases = {
 
   // Media
   image_url: ["image_link", "image", "main_image", "primary_image", "picture"],
-  additional_image_urls: ["additional_images", "extra_images", "gallery"],
+  additional_image_urls: ["additional_image_link", "additional_images", "extra_images", "gallery"],
 
   // Variants
   group_id: ["item_group_id", "parent_id", "variant_group", "product_group"],
@@ -330,11 +453,20 @@ export const commerceBaseAliases: FieldAliases = {
   sale_price_start_date: ["sale_price_effective_date_begin"],
   sale_price_end_date: ["sale_price_effective_date_end"],
 
-  // Media
-  video_url: ["video", "product_video"],
+  // Media - video_link/virtual_model_link are the spec's own Google-compatible
+  // Field Mapping table names (confirmed verbatim, developers.openai.com/commerce/specs/file-upload/products).
+  video_url: ["video_link", "video", "product_video"],
+  model_3d_url: ["virtual_model_link"],
 
   // Basic product data
   gtin: ["upc", "ean"],
+
+  // Item information - product_type/google_product_category are the spec's
+  // own Field Mapping table names; product_type wins when both are present
+  // per the spec ("Uses the first nonempty comma-separated product_type;
+  // otherwise uses google_product_category") - alias resolution here checks
+  // product_type first since it's listed first.
+  product_category: ["product_type", "google_product_category"],
 
   // Geo
   target_countries: ["countries", "ship_to_countries", "available_countries"],
@@ -450,51 +582,109 @@ export const commerceBaseNormalizers: FieldNormalizers = {
 // clear validation error the merchant can fix via the mapping dialog, not a
 // silently-guessed country; store_country is Optional, so it needs no
 // default at all - "missing" is already a valid, meaningful state for it.
-export const commerceBaseDefaults: Record<string, unknown> = {
-  description: "",
+//
+// description used to default to "" here too - also dropped. description is
+// Required per spec; defaulting a missing one to an empty string let a row
+// with no description pass validation silently, which defeats the point of
+// it being Required.
+export const commerceBaseDefaults: Record<string, unknown> = {};
+
+// Human-readable description for every field in commerceBaseFields, used by
+// the field-mapping dialog. Text taken verbatim from each field's
+// DESCRIPTION cell on developers.openai.com/commerce/specs/file-upload/products
+// (re-verified 2026-08-25). commerceBaseFieldDescriptions.test.ts's drift
+// test asserts this has exactly one entry per commerceBaseFieldNames entry,
+// so a newly added schema field can't silently ship without one here.
+export const commerceBaseFieldDescriptions: Record<string, string> = {
+  is_eligible_search: "Controls whether the product can be surfaced in ChatGPT search results",
+  is_eligible_checkout: "Allows direct purchase inside ChatGPT (requires is_eligible_search)",
+  item_id: "Merchant product ID (unique per variant)",
+  gtin: "Universal product identifier",
+  mpn: "Manufacturer part number",
+  title: "Product title",
+  description: "Full product description",
+  url: "Product detail page URL",
+  brand: "Product brand",
+  price: "Regular price, e.g. \"79.99 USD\"",
+  sale_price: "Discounted price, e.g. \"59.99 USD\"",
+  sale_price_start_date: "Sale start date",
+  sale_price_end_date: "Sale end date",
+  availability: "Product availability",
+  availability_date: "Availability date if pre-order",
+  expiration_date: "Remove product after this date",
+  image_url: "Main product image URL",
+  additional_image_urls: "Extra image URLs",
+  video_url: "Product video URL",
+  model_3d_url: "3D model URL",
+  group_id: "Shared variant group identifier",
+  item_group_title: "Group product title",
+  listing_has_variations: "Indicates whether the listing has variants",
+  variant_dict: "Variant attributes map (e.g. color, size)",
+  size: "Variant size",
+  color: "Variant color",
+  size_system: "Size system (2-letter country code)",
+  gender: "Gender target",
+  offer_id: "Offer ID (SKU+seller+price)",
+  seller_name: "Seller name",
+  marketplace_seller: "Marketplace seller of record (3P sellers)",
+  seller_url: "Seller storefront page",
+  seller_privacy_policy: "Seller-specific privacy policy URL",
+  seller_tos: "Seller-specific terms of service URL",
+  return_policy: "Return policy URL",
+  return_deadline_in_days: "Days allowed for return",
+  accepts_returns: "Accepts returns",
+  accepts_exchanges: "Accepts exchanges",
+  shipping: "country:region:service_class:price:handling/transit days",
+  pickup_method: "Pickup options",
+  pickup_sla: "Pickup SLA (requires pickup_method)",
+  unit_pricing_measure: "Unit price measure, paired with base_measure",
+  base_measure: "Base measure, paired with unit_pricing_measure",
+  is_digital: "Indicates if the product is digital",
+  target_countries: "Target countries of the item (first entry used)",
+  store_country: "Store country of the item",
+  geo_price: "Price by region",
+  geo_availability: "Availability per region",
+  condition: "Condition of product",
+  product_category: "Category path",
+  material: "Primary material(s)",
+  dimensions: "Overall dimensions",
+  length: "Individual dimension: length (requires dimensions_unit)",
+  width: "Individual dimension: width (requires dimensions_unit)",
+  height: "Individual dimension: height (requires dimensions_unit)",
+  dimensions_unit: "Dimensions unit (required if length/width/height given)",
+  weight: "Product weight (requires item_weight_unit)",
+  item_weight_unit: "Product weight unit (required if weight given)",
+  age_group: "Target demographic",
+  pricing_trend: "Lowest price in N months",
+  popularity_score: "Popularity indicator",
+  return_rate: "Return rate, e.g. \"2%\"",
+  warning: "Product disclaimer text",
+  warning_url: "Product disclaimer URL",
+  age_restriction: "Minimum purchase age",
+  review_count: "Number of product reviews",
+  star_rating: "Average review score",
+  store_review_count: "Number of brand or store reviews",
+  store_star_rating: "Average store rating",
+  q_and_a: "FAQ content",
+  reviews: "Review entries",
+  related_product_id: "Associated product IDs",
+  relationship_type: "Relationship type",
+  is_ads_eligible: "Eligible for ChatGPT Ads (optional here; required in the Ads validator)",
+  ads_metadata: "Ad metadata values",
 };
 
-// Metadata used by the field-mapping dialog. Kept in sync with
-// commerceBaseFields' required/optional split. This used to live as a
-// hardcoded, hand-maintained array inside src/app/page.tsx (OPENAI_TARGET_FIELDS) —
-// duplicated from the schema and only ever wired to ONE validator. Moving it
-// here means every validator supplies its own accurate list, and a second
-// validator (openai-ads) can extend it instead of the UI silently keeping
-// the old field list forever.
-export const commerceBaseTargetFields: { name: string; required: boolean; description: string }[] = [
-  { name: "is_eligible_search", required: true, description: "Enable ChatGPT search" },
-  { name: "is_eligible_checkout", required: true, description: "Enable in-app checkout" },
-  { name: "item_id", required: true, description: "Unique product ID" },
-  { name: "gtin", required: false, description: "Universal product code (8-14 digits)" },
-  { name: "mpn", required: false, description: "Manufacturer part number" },
-  { name: "title", required: true, description: "Product name" },
-  { name: "description", required: false, description: "Product description" },
-  { name: "url", required: true, description: "Product page URL" },
-  { name: "brand", required: true, description: "Brand name" },
-  { name: "price", required: true, description: "Regular price with currency, e.g. \"79.99 USD\"" },
-  { name: "sale_price", required: false, description: "Sale price with currency" },
-  { name: "availability", required: true, description: "Stock status" },
-  { name: "image_url", required: true, description: "Main product image" },
-  { name: "additional_image_urls", required: false, description: "Extra images" },
-  { name: "shipping", required: false, description: "country:region:service:price:handling/transit days" },
-  { name: "group_id", required: false, description: "Variant group ID" },
-  { name: "item_group_title", required: false, description: "Group product title" },
-  { name: "listing_has_variations", required: false, description: "Has variants" },
-  { name: "size", required: false, description: "Product size" },
-  { name: "color", required: false, description: "Product color" },
-  { name: "condition", required: false, description: "new/refurbished/used" },
-  { name: "product_category", required: false, description: "Product category" },
-  { name: "seller_name", required: false, description: "Merchant name" },
-  { name: "seller_url", required: false, description: "Merchant URL" },
-  { name: "return_policy", required: false, description: "Return policy URL" },
-  { name: "return_deadline_in_days", required: false, description: "Return window in days" },
-  { name: "target_countries", required: true, description: "Target countries (ISO, first entry used)" },
-  { name: "store_country", required: false, description: "Store country (ISO)" },
-  { name: "material", required: false, description: "Product material" },
-  // Optional here; the openai-ads validator's targetFields overrides this
-  // entry as required (filters it out and re-adds it - see openai-ads/schema.ts).
-  { name: "is_ads_eligible", required: false, description: "Eligible for ChatGPT Ads (optional here; required in the Ads validator)" },
-];
+// Metadata used by the field-mapping dialog: name, whether it's required,
+// and a human-readable description. DERIVED from commerceBaseFields'
+// required/optional split (via Zod's own ZodOptional wrapper) rather than
+// hand-maintained. This used to be a hand-written array that drifted 45
+// fields behind the schema (30 entries vs 75 real fields) - same class of
+// bug already fixed once for commerceBaseBooleanFields; same fix here.
+export const commerceBaseTargetFields: { name: string; required: boolean; description: string }[] =
+  Object.entries(commerceBaseFields).map(([name, fieldSchema]) => ({
+    name,
+    required: !(fieldSchema instanceof z.ZodOptional),
+    description: commerceBaseFieldDescriptions[name] ?? name,
+  }));
 
 // Builds validateRecord/validateRecordRaw for a given (already-refined) Zod
 // schema + its aliases/normalizers/defaults. Identical safeParse-and-map-issues

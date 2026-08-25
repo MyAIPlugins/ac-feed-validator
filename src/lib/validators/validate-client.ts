@@ -1,6 +1,6 @@
 import { parseFileClient, detectFormat } from "@/lib/parsers";
 import { getValidator, getValidatorIds } from "./registry";
-import type { FeedValidationSummary, ValidationIssue } from "./types";
+import type { FeedValidationSummary, ValidationIssue, ValidatorModule } from "./types";
 
 const MAX_ISSUES_RETURNED = 100;
 const MAX_VALID_RECORDS_STORED = 10000;
@@ -14,6 +14,10 @@ export interface RawFeedIssue {
   fixedValue?: unknown;
   count: number;
   severity: "warning" | "info";
+  // "ignored" = this column isn't part of the spec and will be dropped, not
+  // corrected - the UI shows it in its own bucket instead of under
+  // "Auto-fixes Applied" with a misleading "value → undefined" arrow.
+  kind?: "ignored";
 }
 
 export interface ClientValidationResult {
@@ -59,25 +63,26 @@ export interface ValidateClientOptions {
 // URL fields that should not contain localhost
 const URL_FIELDS = ["url", "image_url", "seller_url", "return_policy", "seller_privacy_policy", "seller_tos", "warning_url"];
 
-// Detect raw issues by comparing original values with what normalization produces
+export interface RawIssue {
+  field: string;
+  original: unknown;
+  fixed: unknown;
+  problem: string;
+  severity: "warning" | "info";
+  kind?: "ignored";
+}
+
+// Detect raw issues by comparing original values with what normalization
+// produces. Takes the whole ValidatorModule (not its fields positionally) -
+// a previous version took 6 positional arguments and Alan hit exactly the
+// failure mode that invites: passing 5 in a test harness silently produced
+// "every field is unknown" instead of a type error.
 export function detectRawIssues(
   record: Record<string, unknown>,
-  fieldAliases: Record<string, string[]>,
-  fieldNormalizers: Record<string, (value: unknown) => unknown>,
-  trapAliases: Record<string, string> | undefined,
-  // Field names whose schema is boolean-typed. Previously a hardcoded
-  // module-level list here (BOOLEAN_FIELDS) that had to be remembered every
-  // time a validator added a boolean field - moved to each ValidatorModule
-  // (booleanFields) so it can't drift out of sync again. Required (no
-  // default) so a caller can't silently skip the boolean-as-string check.
-  booleanFields: string[],
-  // Every canonical field name the validator's schema recognizes (see
-  // ValidatorModule.fieldNames) - anything in the record that isn't one of
-  // these, an alias of one, or a known trap column gets flagged below so a
-  // typo'd or invented column doesn't just vanish from the export unremarked.
-  fieldNames: string[]
-): Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> {
-  const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> = [];
+  validator: Pick<ValidatorModule, "fieldAliases" | "fieldNormalizers" | "trapAliases" | "booleanFields" | "fieldNames">
+): RawIssue[] {
+  const { fieldAliases, fieldNormalizers, trapAliases, booleanFields, fieldNames } = validator;
+  const issues: RawIssue[] = [];
 
   // Check for known-wrong-but-plausible column names (e.g. "is_ads_enabled"
   // instead of "is_ads_eligible") that would otherwise silently do nothing.
@@ -114,6 +119,7 @@ export function detectRawIssues(
           fixed: undefined,
           problem: `"${key}" is not part of the OpenAI product feed spec and will not be exported`,
           severity: "info",
+          kind: "ignored",
         });
       }
     }
@@ -179,6 +185,25 @@ export function detectRawIssues(
         original: returnDeadline.value,
         fixed: undefined,
         problem: `Return window is only ${numVal} day(s) - unusually short`,
+        severity: "warning",
+      });
+    }
+  }
+
+  // Check for backorder without availability_date. The schema only hard-
+  // requires availability_date for pre_order (see commerce-base.ts); the
+  // "preorder or backorder" wording belongs to a separate compatibility
+  // profile this tool doesn't implement, so backorder-without-date is a
+  // warning here, not a validation error.
+  const availability = getFieldValue("availability");
+  if (availability && String(availability.value).toLowerCase().trim() === "backorder") {
+    const availabilityDate = getFieldValue("availability_date");
+    if (!availabilityDate) {
+      issues.push({
+        field: availability.actualField,
+        original: availability.value,
+        fixed: undefined,
+        problem: "availability is backorder with no availability_date - OpenAI's Google-compatible profile expects one for backorder too",
         severity: "warning",
       });
     }
@@ -373,14 +398,7 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
 
     // Detect raw issues before normalization (only on first few rows for preview)
     if (row <= 10) {
-      const rawDetected = detectRawIssues(
-        mappedRecord,
-        validator.fieldAliases,
-        validator.fieldNormalizers,
-        validator.trapAliases,
-        validator.booleanFields,
-        validator.fieldNames
-      );
+      const rawDetected = detectRawIssues(mappedRecord, validator);
 
       for (const issue of rawDetected) {
         const key = `${issue.field}:${issue.problem}`;
@@ -395,6 +413,7 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
             fixedValue: issue.fixed,
             count: 1,
             severity: issue.severity,
+            kind: issue.kind,
           });
         }
       }
@@ -585,14 +604,7 @@ export async function preValidateClient(
 
     // Detect raw issues (only first 20 rows for issue detection)
     if (row <= 20) {
-      const rawDetected = detectRawIssues(
-        record,
-        validator.fieldAliases,
-        validator.fieldNormalizers,
-        validator.trapAliases,
-        validator.booleanFields,
-        validator.fieldNames
-      );
+      const rawDetected = detectRawIssues(record, validator);
 
       for (const issue of rawDetected) {
         const key = `${issue.field}:${issue.problem}`;
@@ -607,6 +619,7 @@ export async function preValidateClient(
             fixedValue: issue.fixed,
             count: 1,
             severity: issue.severity,
+            kind: issue.kind,
           });
         }
       }

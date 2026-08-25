@@ -411,7 +411,8 @@ export default function Home() {
                     </div>
                     {preValidation.rawIssues.length > 0 && (() => {
                       const warnings = preValidation.rawIssues.filter(i => i.severity === "warning");
-                      const infos = preValidation.rawIssues.filter(i => i.severity === "info");
+                      const infos = preValidation.rawIssues.filter(i => i.severity === "info" && i.kind !== "ignored");
+                      const ignored = preValidation.rawIssues.filter(i => i.kind === "ignored");
                       return (
                         <div className="pt-3 border-t border-slate-500/20 space-y-4">
                           {/* Warnings - need attention */}
@@ -448,6 +449,26 @@ export default function Home() {
                                     <span className="text-amber-800 dark:text-amber-200">{issue.problem}</span>
                                     {issue.count > 1 && (
                                       <span className="text-amber-800 dark:text-amber-400 ml-auto">×{issue.count}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Ignored columns - not a fix, dropped from the export entirely */}
+                          {ignored.length > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-2">
+                                ⊘ {ignored.length} column{ignored.length > 1 ? "s" : ""} not part of the spec, won&apos;t be exported
+                              </p>
+                              <div className="space-y-1">
+                                {ignored.map((issue, idx) => (
+                                  <div key={idx} className="flex items-center gap-2 text-xs p-2 rounded bg-slate-500/10 border border-slate-500/20">
+                                    <span className="font-mono text-slate-300 shrink-0">{issue.field}</span>
+                                    <span className="text-muted-foreground">→</span>
+                                    <span className="text-slate-300">{issue.problem}</span>
+                                    {issue.count > 1 && (
+                                      <span className="text-slate-400 ml-auto">×{issue.count}</span>
                                     )}
                                   </div>
                                 ))}
@@ -555,7 +576,8 @@ export default function Home() {
               {/* Warnings & Auto-fixes Applied */}
               {result.rawIssues && result.rawIssues.length > 0 && (() => {
                 const warnings = result.rawIssues.filter(i => i.severity === "warning");
-                const infos = result.rawIssues.filter(i => i.severity === "info");
+                const infos = result.rawIssues.filter(i => i.severity === "info" && i.kind !== "ignored");
+                const ignored = result.rawIssues.filter(i => i.kind === "ignored");
                 return (
                   <div className="space-y-4">
                     {/* Warnings Card */}
@@ -639,10 +661,58 @@ export default function Home() {
                                     <span className="font-mono bg-muted px-1 rounded">{issue.field}</span>
                                     {": "}
                                     <span className="line-through text-red-700 dark:text-red-400/70">{String(issue.originalValue)}</span>
-                                    {" → "}
-                                    <span className="text-green-800 dark:text-green-400">{String(issue.fixedValue)}</span>
+                                    {issue.fixedValue !== undefined && (
+                                      <>
+                                        {" → "}
+                                        <span className="text-green-800 dark:text-green-400">{String(issue.fixedValue)}</span>
+                                      </>
+                                    )}
                                     {issue.count > 1 && (
                                       <span className="ml-2 text-amber-800 dark:text-amber-400">({issue.count}+ occurrences)</span>
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {/* Ignored Columns Card - dropping a column isn't a correction,
+                        so it gets its own bucket instead of "Auto-fixes Applied" */}
+                    {ignored.length > 0 && (
+                      <Card className="border-slate-500/50 bg-slate-500/5">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                            </svg>
+                            <CardTitle className="text-base">Columns Not Exported</CardTitle>
+                          </div>
+                          <CardDescription>
+                            These columns aren&apos;t part of the OpenAI product feed spec and will not be included in the export
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="space-y-2">
+                            {ignored.map((issue, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-start gap-3 p-3 rounded-lg bg-slate-500/10 border border-slate-500/20"
+                              >
+                                <svg className="h-4 w-4 text-slate-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                </svg>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-slate-300">
+                                    {issue.problem}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    <span className="font-mono bg-black/30 px-1 rounded">{issue.field}</span>
+                                    {": "}
+                                    <span className="text-slate-400/70">{String(issue.originalValue)}</span>
+                                    {issue.count > 1 && (
+                                      <span className="ml-2 text-slate-400">({issue.count}+ occurrences)</span>
                                     )}
                                   </p>
                                 </div>
