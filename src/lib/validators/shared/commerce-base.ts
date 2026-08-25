@@ -31,15 +31,38 @@ export const availabilityValues = ["in_stock", "out_of_stock", "pre_order", "bac
 
 export const urlSchema = z.string().url().max(2048);
 
-// Price format: accepts multiple formats after normalization
-export const priceSchema = z.union([
-  z.number().positive(),
-  z.string().min(1),
-]).refine((val) => {
-  if (typeof val === "number") return val > 0;
-  // Accept "123.45 EUR" or "123.45" format (after normalization)
-  return /^\d+(\.\d{1,2})?\s?[A-Z]{0,3}$/.test(val);
-}, { message: "Invalid price format" });
+// Price format. Per developers.openai.com/commerce/specs/file-upload/products
+// (fetched 2026-08-25): "Number + currency, ISO 4217, e.g. '79.99 USD'. Must
+// include currency code." A bare number can never carry that, so (unlike the
+// original version of this schema) a plain number is no longer accepted -
+// this is an intentional breaking change; see the PR description for the
+// old-vs-new differential.
+function isValidPriceWithCurrency(value: string): boolean {
+  const match = value.match(/^\d+(\.\d{1,2})?\s([A-Z]{3})$/);
+  return !!match && (currencyCodes as readonly string[]).includes(match[2]);
+}
+
+export const priceSchema = z.string().min(1).refine(isValidPriceWithCurrency, {
+  message: 'Price must be a number followed by a currency code, e.g. "79.99 USD"',
+});
+
+// shipping: "country:region:service_class:price:min_handling_days:max_handling_days:min_transit_days:max_transit_days",
+// e.g. "US:CA:Overnight:16.00 USD:1:2:1:3". Per the same spec page: "Omitting
+// fields is allowed ('US::Overnight:16.00 USD'); use colon separators" -
+// every part except the leading country code may be left empty.
+export const shippingSchema = z.string().min(1).refine((value) => {
+  const parts = value.split(":");
+  if (parts.length === 0 || parts.length > 8) return false;
+  const [country, , , price, minHandling, maxHandling, minTransit, maxTransit] = parts;
+  if (!country || !/^[A-Z]{2}$/.test(country)) return false;
+  if (price && !isValidPriceWithCurrency(price)) return false;
+  for (const days of [minHandling, maxHandling, minTransit, maxTransit]) {
+    if (days && !/^\d+$/.test(days)) return false;
+  }
+  return true;
+}, {
+  message: 'shipping must be "country:region:service_class:price:min_handling_days:max_handling_days:min_transit_days:max_transit_days" (parts may be empty except country), e.g. "US:CA:Overnight:16.00 USD:1:2:1:3"',
+});
 
 // ISO 8601 date format
 export const dateSchema = z.string().regex(
@@ -57,6 +80,17 @@ export const booleanSchema = z.union([
 });
 
 // Base commerce fields shared by every OpenAI product feed variant.
+//
+// Field set verified against developers.openai.com/commerce/specs/file-upload/products
+// (fetched 2026-08-25, 107 fields on the live page). Three renames below
+// (seller_name, return_deadline_in_days, sale_price_start_date/end_date)
+// replace names this schema used before that didn't match the spec - the old
+// names are kept working as aliases (see commerceBaseAliases) so existing
+// feed files don't silently break. currency, shipping_price,
+// delivery_estimate and inventory_quantity are NOT spec fields and have been
+// removed - they're registered in commerceBaseTrapAliases instead, so a feed
+// still using them gets a warning instead of the column being silently
+// dropped with no explanation.
 export const commerceBaseFields = {
   // OpenAI Control Flags (Required)
   is_eligible_search: booleanSchema,
@@ -64,6 +98,8 @@ export const commerceBaseFields = {
 
   // Basic Product Data (Required)
   item_id: z.string().min(1).max(100),
+  gtin: z.string().regex(/^\d{8,14}$/, "GTIN must be 8-14 digits").optional(),
+  mpn: z.string().max(70).optional(),
   title: z.string().min(1).max(150).refine(
     (title) => title !== title.toUpperCase() || title.length <= 10,
     { message: "Avoid using all-caps for titles" }
@@ -74,18 +110,24 @@ export const commerceBaseFields = {
 
   // Pricing (Required)
   price: priceSchema,
-  currency: z.enum(currencyCodes).optional(),
   sale_price: priceSchema.optional(),
-  sale_price_effective_date_begin: dateSchema.optional(),
-  sale_price_effective_date_end: dateSchema.optional(),
+  sale_price_start_date: dateSchema.optional(),
+  sale_price_end_date: dateSchema.optional(),
 
   // Availability (Required)
   availability: z.enum(availabilityValues),
+  // Required when availability is pre_order OR backorder - enforced in
+  // withCommerceRefinements below. Per spec: the field table row only says
+  // "Required if availability=pre_order", but the page's own notes add
+  // "Include availability_date when availability is preorder or backorder".
   availability_date: dateSchema.optional(),
+  expiration_date: dateSchema.optional(),
 
   // Media (Required)
   image_url: urlSchema,
   additional_image_urls: z.string().optional(),
+  video_url: urlSchema.optional(),
+  model_3d_url: urlSchema.optional(),
 
   // Variants
   group_id: z.string().max(70).optional(),
@@ -94,46 +136,64 @@ export const commerceBaseFields = {
     { message: "Avoid using all-caps for group titles" }
   ).optional(),
   listing_has_variations: booleanSchema.optional(),
+  variant_dict: z.string().optional(),
   size: z.string().max(100).optional(),
   color: z.string().max(40).optional(),
   size_system: z.string().optional(),
   gender: z.enum(["male", "female", "unisex"]).optional(),
+  offer_id: z.string().optional(),
 
   // Merchant Information (Required for checkout)
-  store_name: z.string().max(70).optional(),
+  seller_name: z.string().max(70).optional(),
+  marketplace_seller: z.string().optional(),
   seller_url: urlSchema.optional(),
   seller_privacy_policy: urlSchema.optional(),
   seller_tos: urlSchema.optional(),
 
-  // Returns Policy (Required)
-  return_policy: urlSchema,
-  return_window: z.union([
+  // Returns Policy - all four Optional per spec (a merchant that doesn't
+  // accept returns needs neither a policy URL nor a return window). Found
+  // during this audit's implementation, same class of fix as store_country
+  // below - flagged separately since it wasn't in the original review list.
+  return_policy: urlSchema.optional(),
+  return_deadline_in_days: z.union([
     z.number().int().positive(),
     z.string().regex(/^\d+$/),
-  ]).transform((v) => Number(v)),
+  ]).transform((v) => Number(v)).optional(),
   accepts_returns: booleanSchema.optional(),
   accepts_exchanges: booleanSchema.optional(),
 
+  // Fulfillment
+  shipping: shippingSchema.optional(),
+  pickup_method: z.enum(["in_store", "reserve", "not_supported"]).optional(),
+  pickup_sla: z.string().optional(),
+  unit_pricing_measure: z.string().optional(),
+  base_measure: z.string().optional(),
+  is_digital: booleanSchema.optional(),
+
   // Geo Targeting (Required)
+  // Spec: List, Required, "first entry used" - a comma/array of countries is
+  // accepted for compatibility, but OpenAI itself only reads the first entry.
   target_countries: z.union([
     z.string().min(2),
     z.array(z.string().min(2)).min(1),
   ]),
-  store_country: z.enum(countryCodes),
+  store_country: z.enum(countryCodes).optional(),
+  geo_price: z.string().optional(),
+  geo_availability: z.string().optional(),
 
   // Item Information (Optional)
   condition: z.enum(["new", "refurbished", "used"]).optional(),
   product_category: z.string().optional(),
   material: z.string().optional(),
   dimensions: z.string().optional(),
+  length: z.string().optional(),
+  width: z.string().optional(),
+  height: z.string().optional(),
+  dimensions_unit: z.string().optional(),
   weight: z.string().optional(),
+  item_weight_unit: z.string().optional(),
   age_group: z.enum(["newborn", "infant", "toddler", "kids", "adult"]).optional(),
-  inventory_quantity: z.union([z.number(), z.string()]).optional(),
-
-  // Fulfillment (Optional)
-  shipping_price: priceSchema.optional(),
-  delivery_estimate: z.string().optional(),
-  is_digital: booleanSchema.optional(),
+  pricing_trend: z.string().max(80).optional(),
 
   // Performance (Optional)
   popularity_score: z.union([z.number(), z.string().regex(/^\d+(\.\d+)?$/)]).optional(),
@@ -150,7 +210,13 @@ export const commerceBaseFields = {
     z.number().min(0).max(5),
     z.string().regex(/^[0-5](\.\d+)?$/),
   ]).optional(),
+  store_review_count: z.union([z.number().int().nonnegative(), z.string().regex(/^\d+$/)]).optional(),
+  store_star_rating: z.union([
+    z.number().min(0).max(5),
+    z.string().regex(/^[0-5](\.\d+)?$/),
+  ]).optional(),
   q_and_a: z.string().optional(),
+  reviews: z.string().optional(),
 
   // Related Products (Optional)
   related_product_id: z.string().optional(),
@@ -162,9 +228,19 @@ export const commerceBaseFields = {
   // ONE feed file through the plain OpenAI validator doesn't have this column
   // silently stripped from the export by Zod's default unknown-key handling.
   is_ads_eligible: booleanSchema.optional(),
+  ads_metadata: z.string().optional(),
 };
 
+// variant_dict, reviews, geo_price, geo_availability and ads_metadata are
+// structured (JSON object / list / region-keyed) in the spec. Raw feed rows
+// (CSV/JSONL) give us these as plain strings, and the spec doesn't fully
+// pin down their sub-shape - kept as free-form strings deliberately rather
+// than guessing a stricter shape that might reject valid data.
+
 export const commerceBaseSchema = z.object(commerceBaseFields);
+
+// Every canonical field name this schema recognizes - see ValidatorModule.fieldNames.
+export const commerceBaseFieldNames: string[] = Object.keys(commerceBaseFields);
 
 // Minimal shape withCommerceRefinements' checks rely on. Any schema built on
 // commerceBaseFields (with or without extra fields like is_ads_eligible)
@@ -173,7 +249,7 @@ type CommerceRefinementFields = {
   is_eligible_checkout: boolean;
   seller_privacy_policy?: string;
   seller_tos?: string;
-  store_name?: string;
+  seller_name?: string;
   availability: string;
   availability_date?: string;
 };
@@ -192,20 +268,24 @@ export function withCommerceRefinements<T extends z.ZodType<CommerceRefinementFi
     .refine(
       (data: z.infer<T>) => {
         if (data.is_eligible_checkout) {
-          return !!data.seller_privacy_policy && !!data.seller_tos && !!data.store_name;
+          return !!data.seller_privacy_policy && !!data.seller_tos && !!data.seller_name;
         }
         return true;
       },
-      { message: "Checkout-enabled products require seller_privacy_policy, seller_tos, and store_name" }
+      { message: "Checkout-enabled products require seller_privacy_policy, seller_tos, and seller_name" }
     )
     .refine(
       (data: z.infer<T>) => {
-        if (data.availability === "pre_order") {
+        // Per developers.openai.com/commerce/specs/file-upload/products
+        // (fetched 2026-08-25): "Include availability_date when availability
+        // is preorder or backorder" - the field table row alone only
+        // mentions pre_order, but the page's own note covers both.
+        if (data.availability === "pre_order" || data.availability === "backorder") {
           return !!data.availability_date;
         }
         return true;
       },
-      { message: "Pre-order products require availability_date" }
+      { message: "Pre-order and backorder products require availability_date" }
     );
 }
 
@@ -240,7 +320,21 @@ export const commerceBaseAliases: FieldAliases = {
   listing_has_variations: ["has_variants", "has_variations", "is_variant"],
 
   // Merchant info
-  store_name: ["seller_name", "merchant_name", "shop_name"],
+  seller_name: ["store_name", "merchant_name", "shop_name"],
+
+  // Returns - renamed to match the spec's return_deadline_in_days; the old
+  // return_window name is kept working as an alias.
+  return_deadline_in_days: ["return_window"],
+
+  // Pricing - renamed to match the spec's sale_price_start_date/end_date.
+  sale_price_start_date: ["sale_price_effective_date_begin"],
+  sale_price_end_date: ["sale_price_effective_date_end"],
+
+  // Media
+  video_url: ["video", "product_video"],
+
+  // Basic product data
+  gtin: ["upc", "ean"],
 
   // Geo
   target_countries: ["countries", "ship_to_countries", "available_countries"],
@@ -265,10 +359,20 @@ export const commerceBaseBooleanFields: string[] = [
   "is_digital",
 ];
 
-// Known-wrong-but-plausible column name shared by every OpenAI product feed
-// variant, since is_ads_eligible now lives on the base schema too.
+// Known-wrong-but-plausible or no-longer-supported column names shared by
+// every OpenAI product feed variant - each of these silently does nothing
+// (Zod strips them as unknown keys) unless the merchant is told otherwise.
 export const commerceBaseTrapAliases: TrapAliases = {
   is_ads_enabled: 'OpenAI does not read "is_ads_enabled" - it is silently ignored. Rename this column to "is_ads_eligible".',
+  // currency, shipping_price, delivery_estimate and inventory_quantity were
+  // never real spec fields (verified against developers.openai.com/commerce/specs/file-upload/products,
+  // fetched 2026-08-25) and have been removed from the schema. Registered
+  // here, same mechanism as is_ads_enabled, so a feed still using them gets
+  // a warning instead of the column silently vanishing from the export.
+  currency: 'OpenAI does not read "currency" as a separate column - it is silently ignored. Include the currency code directly in "price" instead, e.g. "63.00 EUR".',
+  shipping_price: 'OpenAI does not read "shipping_price" - it is silently ignored. Provide "shipping" instead, formatted as "country:region:service_class:price:min_handling_days:max_handling_days:min_transit_days:max_transit_days", e.g. "US:CA:Overnight:16.00 USD:1:2:1:3".',
+  delivery_estimate: 'OpenAI does not read "delivery_estimate" - it is silently ignored. Provide "shipping" instead, formatted as "country:region:service_class:price:min_handling_days:max_handling_days:min_transit_days:max_transit_days".',
+  inventory_quantity: 'OpenAI does not read "inventory_quantity" - it is not part of the product feed spec and is silently ignored.',
 };
 
 // Normalizers shared by every OpenAI product feed variant: transform values
@@ -281,11 +385,6 @@ export const commerceBaseNormalizers: FieldNormalizers = {
   },
 
   sale_price: (value) => {
-    if (typeof value !== "string") return value;
-    return value.replace(/(\d+),(\d{2})(\s|$|[A-Z])/, "$1.$2$3").trim();
-  },
-
-  shipping_price: (value) => {
     if (typeof value !== "string") return value;
     return value.replace(/(\d+),(\d{2})(\s|$|[A-Z])/, "$1.$2$3").trim();
   },
@@ -312,8 +411,8 @@ export const commerceBaseNormalizers: FieldNormalizers = {
     return mapping[normalized] ?? normalized;
   },
 
-  // Normalize return_window: "14 days" -> "14"
-  return_window: (value) => {
+  // Normalize return_deadline_in_days: "14 days" -> "14"
+  return_deadline_in_days: (value) => {
     if (typeof value === "number") return value;
     if (typeof value !== "string") return value;
     const match = value.match(/^(\d+)/);
@@ -345,9 +444,13 @@ export const commerceBaseNormalizers: FieldNormalizers = {
 };
 
 // Default values shared by every OpenAI product feed variant.
+//
+// target_countries and store_country used to default to "IT" here. Dropped:
+// target_countries is Required per spec, so a feed missing it should get a
+// clear validation error the merchant can fix via the mapping dialog, not a
+// silently-guessed country; store_country is Optional, so it needs no
+// default at all - "missing" is already a valid, meaningful state for it.
 export const commerceBaseDefaults: Record<string, unknown> = {
-  target_countries: "IT",
-  store_country: "IT",
   description: "",
 };
 
@@ -362,16 +465,18 @@ export const commerceBaseTargetFields: { name: string; required: boolean; descri
   { name: "is_eligible_search", required: true, description: "Enable ChatGPT search" },
   { name: "is_eligible_checkout", required: true, description: "Enable in-app checkout" },
   { name: "item_id", required: true, description: "Unique product ID" },
+  { name: "gtin", required: false, description: "Universal product code (8-14 digits)" },
+  { name: "mpn", required: false, description: "Manufacturer part number" },
   { name: "title", required: true, description: "Product name" },
   { name: "description", required: false, description: "Product description" },
   { name: "url", required: true, description: "Product page URL" },
   { name: "brand", required: true, description: "Brand name" },
-  { name: "price", required: true, description: "Regular price" },
-  { name: "currency", required: false, description: "Currency code (ISO 4217)" },
-  { name: "sale_price", required: false, description: "Sale price" },
+  { name: "price", required: true, description: "Regular price with currency, e.g. \"79.99 USD\"" },
+  { name: "sale_price", required: false, description: "Sale price with currency" },
   { name: "availability", required: true, description: "Stock status" },
   { name: "image_url", required: true, description: "Main product image" },
   { name: "additional_image_urls", required: false, description: "Extra images" },
+  { name: "shipping", required: false, description: "country:region:service:price:handling/transit days" },
   { name: "group_id", required: false, description: "Variant group ID" },
   { name: "item_group_title", required: false, description: "Group product title" },
   { name: "listing_has_variations", required: false, description: "Has variants" },
@@ -379,14 +484,13 @@ export const commerceBaseTargetFields: { name: string; required: boolean; descri
   { name: "color", required: false, description: "Product color" },
   { name: "condition", required: false, description: "new/refurbished/used" },
   { name: "product_category", required: false, description: "Product category" },
-  { name: "store_name", required: false, description: "Merchant name" },
+  { name: "seller_name", required: false, description: "Merchant name" },
   { name: "seller_url", required: false, description: "Merchant URL" },
-  { name: "return_policy", required: true, description: "Return policy URL" },
-  { name: "return_window", required: true, description: "Return window in days" },
-  { name: "target_countries", required: true, description: "Target countries (ISO)" },
-  { name: "store_country", required: true, description: "Store country (ISO)" },
+  { name: "return_policy", required: false, description: "Return policy URL" },
+  { name: "return_deadline_in_days", required: false, description: "Return window in days" },
+  { name: "target_countries", required: true, description: "Target countries (ISO, first entry used)" },
+  { name: "store_country", required: false, description: "Store country (ISO)" },
   { name: "material", required: false, description: "Product material" },
-  { name: "inventory_quantity", required: false, description: "Stock quantity" },
   // Optional here; the openai-ads validator's targetFields overrides this
   // entry as required (filters it out and re-adds it - see openai-ads/schema.ts).
   { name: "is_ads_eligible", required: false, description: "Eligible for ChatGPT Ads (optional here; required in the Ads validator)" },

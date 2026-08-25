@@ -12,11 +12,11 @@ function validAdsRecord(overrides: Record<string, unknown> = {}) {
     description: "A great product",
     url: "https://example.com/product/123",
     brand: "Acme",
-    price: 19.99,
+    price: "19.99 USD",
     availability: "in_stock",
     image_url: "https://example.com/image.jpg",
     return_policy: "https://example.com/returns",
-    return_window: 30,
+    return_deadline_in_days: 30,
     target_countries: "US",
     store_country: "US",
     ...overrides,
@@ -73,7 +73,8 @@ describe("openAIAdsValidator", () => {
       openAIAdsValidator.fieldAliases,
       openAIAdsValidator.fieldNormalizers,
       openAIAdsValidator.trapAliases,
-      openAIAdsValidator.booleanFields
+      openAIAdsValidator.booleanFields,
+      openAIAdsValidator.fieldNames
     );
 
     const trapWarning = issues.find((i) => i.field === "is_ads_enabled");
@@ -94,7 +95,8 @@ describe("openAIAdsValidator", () => {
       openAIValidator.fieldAliases,
       openAIValidator.fieldNormalizers,
       openAIValidator.trapAliases,
-      openAIValidator.booleanFields
+      openAIValidator.booleanFields,
+      openAIValidator.fieldNames
     );
 
     expect(issues.some((i) => i.field === "is_ads_enabled")).toBe(true);

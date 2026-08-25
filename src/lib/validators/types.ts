@@ -73,6 +73,11 @@ export interface ValidatorModule<T extends z.ZodTypeAny = z.ZodTypeAny> {
   // new boolean field can't be added to a schema without also being wired
   // up for that warning.
   booleanFields: string[];
+  // Every canonical field name this validator's schema actually recognizes
+  // (derived from the schema's field object, not hand-maintained) - drives
+  // the "this column isn't part of the spec and won't be exported" warning
+  // for typo'd or invented columns Zod would otherwise strip silently.
+  fieldNames: string[];
   validateRecord: (record: Record<string, unknown>, row: number) => RecordValidationResult;
   // Validate without applying normalizations (for raw feed analysis)
   validateRecordRaw?: (record: Record<string, unknown>, row: number) => RecordValidationResult;

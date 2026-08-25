@@ -9,6 +9,7 @@ import {
   commerceBaseTargetFields,
   commerceBaseBooleanFields,
   commerceBaseTrapAliases,
+  commerceBaseFieldNames,
   createRecordValidators,
   booleanSchema,
 } from "../shared/commerce-base";
@@ -62,6 +63,11 @@ export const openAIAdsValidator: ValidatorModule<typeof openAIAdsFeedSchema> = {
   targetFields,
   booleanFields: commerceBaseBooleanFields,
   trapAliases: commerceBaseTrapAliases,
+  // is_ads_eligible is already a key in commerceBaseFields (optional there);
+  // extend() here only changes its type to required, it doesn't add a new
+  // field name - so the base's field name list is accurate for this
+  // validator too.
+  fieldNames: commerceBaseFieldNames,
   validateRecord,
   validateRecordRaw,
 };

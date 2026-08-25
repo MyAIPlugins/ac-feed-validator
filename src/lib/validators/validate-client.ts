@@ -70,7 +70,12 @@ export function detectRawIssues(
   // time a validator added a boolean field - moved to each ValidatorModule
   // (booleanFields) so it can't drift out of sync again. Required (no
   // default) so a caller can't silently skip the boolean-as-string check.
-  booleanFields: string[]
+  booleanFields: string[],
+  // Every canonical field name the validator's schema recognizes (see
+  // ValidatorModule.fieldNames) - anything in the record that isn't one of
+  // these, an alias of one, or a known trap column gets flagged below so a
+  // typo'd or invented column doesn't just vanish from the export unremarked.
+  fieldNames: string[]
 ): Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> {
   const issues: Array<{ field: string; original: unknown; fixed: unknown; problem: string; severity: "warning" | "info" }> = [];
 
@@ -85,6 +90,30 @@ export function detectRawIssues(
           fixed: undefined,
           problem: warning,
           severity: "warning",
+        });
+      }
+    }
+  }
+
+  // Surface columns the schema doesn't recognize at all. Zod strips these
+  // silently on validation - without this, a merchant with a typo'd or
+  // made-up column name gets no signal their data isn't being exported.
+  {
+    const known = new Set<string>(fieldNames);
+    for (const aliasList of Object.values(fieldAliases)) {
+      for (const alias of aliasList) known.add(alias);
+    }
+    if (trapAliases) {
+      for (const trapField of Object.keys(trapAliases)) known.add(trapField);
+    }
+    for (const key of Object.keys(record)) {
+      if (!known.has(key)) {
+        issues.push({
+          field: key,
+          original: record[key],
+          fixed: undefined,
+          problem: `"${key}" is not part of the OpenAI product feed spec and will not be exported`,
+          severity: "info",
         });
       }
     }
@@ -138,16 +167,16 @@ export function detectRawIssues(
     }
   }
 
-  // Check for short return_window
-  const returnWindow = getFieldValue("return_window");
-  if (returnWindow) {
-    const numVal = typeof returnWindow.value === "number"
-      ? returnWindow.value
-      : parseInt(String(returnWindow.value), 10);
+  // Check for short return_deadline_in_days
+  const returnDeadline = getFieldValue("return_deadline_in_days");
+  if (returnDeadline) {
+    const numVal = typeof returnDeadline.value === "number"
+      ? returnDeadline.value
+      : parseInt(String(returnDeadline.value), 10);
     if (!isNaN(numVal) && numVal < 7) {
       issues.push({
-        field: returnWindow.actualField,
-        original: returnWindow.value,
+        field: returnDeadline.actualField,
+        original: returnDeadline.value,
         fixed: undefined,
         problem: `Return window is only ${numVal} day(s) - unusually short`,
         severity: "warning",
@@ -193,11 +222,11 @@ export function detectRawIssues(
         let problem = `Value normalized`;
 
         // Detect specific normalization types
-        if (field === "price" || field === "sale_price" || field === "shipping_price") {
+        if (field === "price" || field === "sale_price") {
           problem = "Price format corrected (comma → dot)";
         } else if (field === "availability") {
           problem = "Availability format standardized";
-        } else if (field === "return_window") {
+        } else if (field === "return_deadline_in_days") {
           problem = "Return window extracted (days → number)";
         } else if (field === "condition") {
           problem = "Condition value translated";
@@ -349,7 +378,8 @@ export async function validateClient(options: ValidateClientOptions): Promise<Cl
         validator.fieldAliases,
         validator.fieldNormalizers,
         validator.trapAliases,
-        validator.booleanFields
+        validator.booleanFields,
+        validator.fieldNames
       );
 
       for (const issue of rawDetected) {
@@ -560,7 +590,8 @@ export async function preValidateClient(
         validator.fieldAliases,
         validator.fieldNormalizers,
         validator.trapAliases,
-        validator.booleanFields
+        validator.booleanFields,
+        validator.fieldNames
       );
 
       for (const issue of rawDetected) {
