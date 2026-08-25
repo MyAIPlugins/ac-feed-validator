@@ -94,7 +94,7 @@ export function ValidationProgressDialog({
               </p>
             </div>
             <div className="p-2 rounded-lg bg-green-500/10 border border-green-500/20">
-              <p className="text-lg font-bold text-green-700 dark:text-green-400">
+              <p className="text-lg font-bold text-green-800 dark:text-green-400">
                 {progress?.validRows.toLocaleString() ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">Valid</p>
@@ -106,7 +106,7 @@ export function ValidationProgressDialog({
               <p className="text-xs text-muted-foreground">Invalid</p>
             </div>
             <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-              <p className="text-lg font-bold text-amber-700 dark:text-amber-400">
+              <p className="text-lg font-bold text-amber-800 dark:text-amber-400">
                 {((progress?.errorCount ?? 0) + (progress?.warningCount ?? 0)).toLocaleString()}
               </p>
               <p className="text-xs text-muted-foreground">

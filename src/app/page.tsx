@@ -405,7 +405,7 @@ export default function Home() {
                         <p className="text-xs text-muted-foreground">Total Records</p>
                       </div>
                       <div className="text-center p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                        <p className="text-2xl font-bold text-green-700 dark:text-green-400">{preValidation.validRows.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-green-800 dark:text-green-400">{preValidation.validRows.toLocaleString()}</p>
                         <p className="text-xs text-muted-foreground">Valid</p>
                       </div>
                       <div className="text-center p-3 rounded-lg bg-red-500/10 border border-red-500/20">
@@ -447,11 +447,11 @@ export default function Home() {
                               <div className="space-y-1">
                                 {infos.map((issue, idx) => (
                                   <div key={idx} className="flex items-center gap-2 text-xs p-2 rounded bg-amber-500/10 border border-amber-500/20">
-                                    <span className="font-mono text-amber-700 dark:text-amber-300 shrink-0">{issue.field}</span>
+                                    <span className="font-mono text-amber-800 dark:text-amber-300 shrink-0">{issue.field}</span>
                                     <span className="text-muted-foreground">→</span>
-                                    <span className="text-amber-700 dark:text-amber-200">{issue.problem}</span>
+                                    <span className="text-amber-800 dark:text-amber-200">{issue.problem}</span>
                                     {issue.count > 1 && (
-                                      <span className="text-amber-700 dark:text-amber-400 ml-auto">×{issue.count}</span>
+                                      <span className="text-amber-800 dark:text-amber-400 ml-auto">×{issue.count}</span>
                                     )}
                                   </div>
                                 ))}
@@ -469,7 +469,7 @@ export default function Home() {
                             <svg className="h-4 w-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
-                            <span className="text-sm text-amber-700 dark:text-amber-400">
+                            <span className="text-sm text-amber-800 dark:text-amber-400">
                               Records pass schema validation, but have warnings. Review before submitting to OpenAI.
                             </span>
                           </div>
@@ -480,7 +480,7 @@ export default function Home() {
                           <svg className="h-4 w-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
-                          <span className="text-sm text-green-700 dark:text-green-400">
+                          <span className="text-sm text-green-800 dark:text-green-400">
                             {preValidation.analyzedRows === preValidation.totalRows
                               ? "All records are valid! You can proceed with full validation and export."
                               : "Feed looks valid so far. Run full validation to confirm."}
@@ -597,7 +597,7 @@ export default function Home() {
                                     {issue.fixedValue !== undefined && (
                                       <>
                                         {" → "}
-                                        <span className="text-amber-700 dark:text-amber-400">{String(issue.fixedValue)}</span>
+                                        <span className="text-amber-800 dark:text-amber-400">{String(issue.fixedValue)}</span>
                                       </>
                                     )}
                                     {issue.count > 1 && (
@@ -636,7 +636,7 @@ export default function Home() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                 </svg>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-amber-700 dark:text-amber-200">
+                                  <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
                                     {issue.problem}
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
@@ -644,9 +644,9 @@ export default function Home() {
                                     {": "}
                                     <span className="line-through text-red-700 dark:text-red-400/70">{String(issue.originalValue)}</span>
                                     {" → "}
-                                    <span className="text-green-700 dark:text-green-400">{String(issue.fixedValue)}</span>
+                                    <span className="text-green-800 dark:text-green-400">{String(issue.fixedValue)}</span>
                                     {issue.count > 1 && (
-                                      <span className="ml-2 text-amber-700 dark:text-amber-400">({issue.count}+ occurrences)</span>
+                                      <span className="ml-2 text-amber-800 dark:text-amber-400">({issue.count}+ occurrences)</span>
                                     )}
                                   </p>
                                 </div>
@@ -718,7 +718,7 @@ export default function Home() {
 
         {/* Privacy Notice */}
         <div className="text-center p-4 rounded-lg bg-green-500/5 border border-green-500/20">
-          <div className="flex items-center justify-center gap-2 text-green-700 dark:text-green-400 text-sm">
+          <div className="flex items-center justify-center gap-2 text-green-800 dark:text-green-400 text-sm">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
