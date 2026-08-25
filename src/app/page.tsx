@@ -7,6 +7,7 @@ import { ValidationResults } from "@/components/validation-results";
 import { FieldMappingDialog } from "@/components/field-mapping-dialog";
 import { PreValidationDialog, type PreValidationProgress } from "@/components/pre-validation-dialog";
 import { ValidationProgressDialog } from "@/components/validation-progress-dialog";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -238,24 +239,29 @@ export default function Home() {
   const currentValidator = validators.find((v) => v.id === selectedValidator);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-950">
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-white dark:from-slate-900 dark:via-blue-950 dark:to-slate-950">
       <div className="max-w-4xl mx-auto px-4 py-12 space-y-8">
         {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-            </span>
-            Open Source
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <ThemeToggle />
           </div>
-          <h1 className="text-5xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
-            AI Feed Validator
-          </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Validate, normalize, and export product feeds for AI commerce platforms.
-            Supports OpenAI, with more coming soon.
-          </p>
+          <div className="text-center space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+              </span>
+              Open Source
+            </div>
+            <h1 className="text-5xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
+              AI Feed Validator
+            </h1>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              Validate, normalize, and export product feeds for AI commerce platforms.
+              Supports OpenAI, with more coming soon.
+            </p>
+          </div>
         </div>
 
         {/* Main Content */}
@@ -360,7 +366,7 @@ export default function Home() {
                   <svg className="h-4 w-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-sm text-blue-400">
+                  <span className="text-sm text-blue-700 dark:text-blue-400">
                     Custom field mapping applied ({Object.keys(customMappings).length} fields mapped)
                   </span>
                 </div>
@@ -373,7 +379,7 @@ export default function Home() {
             <Card className="border-slate-500/50 bg-slate-500/5">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
-                  <svg className="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
                   <CardTitle className="text-base">Pre-validation Results</CardTitle>
@@ -391,15 +397,15 @@ export default function Home() {
                   <div className="space-y-3">
                     <div className="grid grid-cols-3 gap-3">
                       <div className="text-center p-3 rounded-lg bg-slate-500/10 border border-slate-500/20">
-                        <p className="text-2xl font-bold text-slate-200">{preValidation.totalRows.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-foreground">{preValidation.totalRows.toLocaleString()}</p>
                         <p className="text-xs text-muted-foreground">Total Records</p>
                       </div>
                       <div className="text-center p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                        <p className="text-2xl font-bold text-green-400">{preValidation.validRows.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-green-800 dark:text-green-400">{preValidation.validRows.toLocaleString()}</p>
                         <p className="text-xs text-muted-foreground">Valid</p>
                       </div>
                       <div className="text-center p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                        <p className="text-2xl font-bold text-red-400">{preValidation.invalidRows.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-red-700 dark:text-red-400">{preValidation.invalidRows.toLocaleString()}</p>
                         <p className="text-xs text-muted-foreground">Invalid</p>
                       </div>
                     </div>
@@ -411,17 +417,17 @@ export default function Home() {
                           {/* Warnings - need attention */}
                           {warnings.length > 0 && (
                             <div>
-                              <p className="text-xs text-red-400 font-medium mb-2">
+                              <p className="text-xs text-red-700 dark:text-red-400 font-medium mb-2">
                                 ⚠️ {warnings.length} warning{warnings.length > 1 ? "s" : ""} - needs attention
                               </p>
                               <div className="space-y-1">
                                 {warnings.map((issue, idx) => (
                                   <div key={idx} className="flex items-center gap-2 text-xs p-2 rounded bg-red-500/10 border border-red-500/20">
-                                    <span className="font-mono text-red-300 shrink-0">{issue.field}</span>
+                                    <span className="font-mono text-red-700 dark:text-red-300 shrink-0">{issue.field}</span>
                                     <span className="text-muted-foreground">→</span>
-                                    <span className="text-red-200">{issue.problem}</span>
+                                    <span className="text-red-700 dark:text-red-200">{issue.problem}</span>
                                     {issue.count > 1 && (
-                                      <span className="text-red-400 ml-auto">×{issue.count}</span>
+                                      <span className="text-red-700 dark:text-red-400 ml-auto">×{issue.count}</span>
                                     )}
                                   </div>
                                 ))}
@@ -437,11 +443,11 @@ export default function Home() {
                               <div className="space-y-1">
                                 {infos.map((issue, idx) => (
                                   <div key={idx} className="flex items-center gap-2 text-xs p-2 rounded bg-amber-500/10 border border-amber-500/20">
-                                    <span className="font-mono text-amber-300 shrink-0">{issue.field}</span>
+                                    <span className="font-mono text-amber-800 dark:text-amber-300 shrink-0">{issue.field}</span>
                                     <span className="text-muted-foreground">→</span>
-                                    <span className="text-amber-200">{issue.problem}</span>
+                                    <span className="text-amber-800 dark:text-amber-200">{issue.problem}</span>
                                     {issue.count > 1 && (
-                                      <span className="text-amber-400 ml-auto">×{issue.count}</span>
+                                      <span className="text-amber-800 dark:text-amber-400 ml-auto">×{issue.count}</span>
                                     )}
                                   </div>
                                 ))}
@@ -459,7 +465,7 @@ export default function Home() {
                             <svg className="h-4 w-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
-                            <span className="text-sm text-amber-400">
+                            <span className="text-sm text-amber-800 dark:text-amber-400">
                               Records pass schema validation, but have warnings. Review before submitting to OpenAI.
                             </span>
                           </div>
@@ -470,7 +476,7 @@ export default function Home() {
                           <svg className="h-4 w-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
-                          <span className="text-sm text-green-400">
+                          <span className="text-sm text-green-800 dark:text-green-400">
                             {preValidation.analyzedRows === preValidation.totalRows
                               ? "All records are valid! You can proceed with full validation and export."
                               : "Feed looks valid so far. Run full validation to confirm."}
@@ -577,21 +583,21 @@ export default function Home() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                 </svg>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-red-200">
+                                  <p className="text-sm font-medium text-red-700 dark:text-red-200">
                                     {issue.problem}
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    <span className="font-mono bg-black/30 px-1 rounded">{issue.field}</span>
+                                    <span className="font-mono bg-muted px-1 rounded">{issue.field}</span>
                                     {": "}
-                                    <span className="text-red-400/70">{String(issue.originalValue)}</span>
+                                    <span className="text-red-700 dark:text-red-400/70">{String(issue.originalValue)}</span>
                                     {issue.fixedValue !== undefined && (
                                       <>
                                         {" → "}
-                                        <span className="text-amber-400">{String(issue.fixedValue)}</span>
+                                        <span className="text-amber-800 dark:text-amber-400">{String(issue.fixedValue)}</span>
                                       </>
                                     )}
                                     {issue.count > 1 && (
-                                      <span className="ml-2 text-red-400">({issue.count}+ occurrences)</span>
+                                      <span className="ml-2 text-red-700 dark:text-red-400">({issue.count}+ occurrences)</span>
                                     )}
                                   </p>
                                 </div>
@@ -626,17 +632,17 @@ export default function Home() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                 </svg>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-amber-200">
+                                  <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
                                     {issue.problem}
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    <span className="font-mono bg-black/30 px-1 rounded">{issue.field}</span>
+                                    <span className="font-mono bg-muted px-1 rounded">{issue.field}</span>
                                     {": "}
-                                    <span className="line-through text-red-400/70">{String(issue.originalValue)}</span>
+                                    <span className="line-through text-red-700 dark:text-red-400/70">{String(issue.originalValue)}</span>
                                     {" → "}
-                                    <span className="text-green-400">{String(issue.fixedValue)}</span>
+                                    <span className="text-green-800 dark:text-green-400">{String(issue.fixedValue)}</span>
                                     {issue.count > 1 && (
-                                      <span className="ml-2 text-amber-400">({issue.count}+ occurrences)</span>
+                                      <span className="ml-2 text-amber-800 dark:text-amber-400">({issue.count}+ occurrences)</span>
                                     )}
                                   </p>
                                 </div>
@@ -708,7 +714,7 @@ export default function Home() {
 
         {/* Privacy Notice */}
         <div className="text-center p-4 rounded-lg bg-green-500/5 border border-green-500/20">
-          <div className="flex items-center justify-center gap-2 text-green-400 text-sm">
+          <div className="flex items-center justify-center gap-2 text-green-800 dark:text-green-400 text-sm">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
@@ -717,7 +723,7 @@ export default function Home() {
         </div>
 
         {/* Footer */}
-        <footer className="text-center text-sm text-muted-foreground pt-8 border-t border-white/10 space-y-3">
+        <footer className="text-center text-sm text-muted-foreground pt-8 border-t border-border space-y-3">
           <p className="text-sm flex items-center justify-center gap-1">
             Made with{" "}
             <svg className="h-4 w-4 text-red-500 fill-red-500" viewBox="0 0 24 24">

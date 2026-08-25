@@ -94,7 +94,7 @@ export function PreValidationDialog({
           {/* Stats grid */}
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="p-2 rounded-lg bg-slate-500/10 border border-slate-500/20">
-              <p className="text-lg font-bold text-slate-200">
+              <p className="text-lg font-bold text-foreground">
                 {progress?.processedRows.toLocaleString() ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">
@@ -102,13 +102,13 @@ export function PreValidationDialog({
               </p>
             </div>
             <div className="p-2 rounded-lg bg-green-500/10 border border-green-500/20">
-              <p className="text-lg font-bold text-green-400">
+              <p className="text-lg font-bold text-green-800 dark:text-green-400">
                 {progress?.validRows.toLocaleString() ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">Valid</p>
             </div>
             <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
-              <p className="text-lg font-bold text-red-400">
+              <p className="text-lg font-bold text-red-700 dark:text-red-400">
                 {progress?.invalidRows.toLocaleString() ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">Invalid</p>
