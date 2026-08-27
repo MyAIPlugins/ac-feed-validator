@@ -1,0 +1,19 @@
+src/app/page.tsx
+  s_33df362ebad331::t_083f48e4b7c594 471,711,713,715
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e54a43fbc8801f7fa7452065f0f81fb7e8c9a6ad",
+  "prompts": {},
+  "sessions": {
+    "s_33df362ebad331": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "37bd4ebd-27f9-4c8d-9650-3d85acb32e56",
+        "model": "claude-fable-5"
+      },
+      "human_author": "myaiplugins <info@myaiplugins.com>"
+    }
+  }
+}
