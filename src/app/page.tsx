@@ -464,11 +464,11 @@ export default function Home() {
                               <div className="space-y-1">
                                 {ignored.map((issue, idx) => (
                                   <div key={idx} className="flex items-center gap-2 text-xs p-2 rounded bg-slate-500/10 border border-slate-500/20">
-                                    <span className="font-mono text-slate-300 shrink-0">{issue.field}</span>
+                                    <span className="font-mono text-foreground shrink-0">{issue.field}</span>
                                     <span className="text-muted-foreground">→</span>
-                                    <span className="text-slate-300">{issue.problem}</span>
+                                    <span className="text-foreground">{issue.problem}</span>
                                     {issue.count > 1 && (
-                                      <span className="text-slate-400 ml-auto">×{issue.count}</span>
+                                      <span className="text-muted-foreground ml-auto">×{issue.count}</span>
                                     )}
                                   </div>
                                 ))}
@@ -684,7 +684,7 @@ export default function Home() {
                       <Card className="border-slate-500/50 bg-slate-500/5">
                         <CardHeader className="pb-3">
                           <div className="flex items-center gap-2">
-                            <svg className="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                             </svg>
                             <CardTitle className="text-base">Columns Not Exported</CardTitle>
@@ -700,19 +700,19 @@ export default function Home() {
                                 key={idx}
                                 className="flex items-start gap-3 p-3 rounded-lg bg-slate-500/10 border border-slate-500/20"
                               >
-                                <svg className="h-4 w-4 text-slate-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                                 </svg>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-slate-300">
+                                  <p className="text-sm font-medium text-foreground">
                                     {issue.problem}
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    <span className="font-mono bg-black/30 px-1 rounded">{issue.field}</span>
+                                    <span className="font-mono bg-muted px-1 rounded">{issue.field}</span>
                                     {": "}
-                                    <span className="text-slate-400/70">{String(issue.originalValue)}</span>
+                                    <span className="text-muted-foreground/70">{String(issue.originalValue)}</span>
                                     {issue.count > 1 && (
-                                      <span className="ml-2 text-slate-400">({issue.count}+ occurrences)</span>
+                                      <span className="ml-2 text-muted-foreground">({issue.count}+ occurrences)</span>
                                     )}
                                   </p>
                                 </div>
