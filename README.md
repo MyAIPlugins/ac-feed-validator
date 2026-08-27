@@ -7,7 +7,7 @@ A modern, modular feed validator for AI platforms. Currently supports **OpenAI P
 - **OpenAI Feed Validation** - Validates product feeds against [OpenAI's Commerce Feed Specification](https://developers.openai.com/commerce/specs/feed)
 - **Field Mapping** - Automatic and manual field mapping to handle different CSV column naming conventions
 - **Data Normalization** - Automatically converts common data formats (price, availability, etc.)
-- **Multiple Formats** - Supports JSONL and CSV, including gzipped versions (.jsonl.gz, .csv.gz)
+- **Multiple Formats** - Supports JSONL and CSV, including gzipped versions (.jsonl.gz, .csv.gz). OpenAI's own delivery is SFTP, full snapshot only (no delta/incremental) on at least a daily cadence; it prefers `parquet`, with `jsonl.gz`, `csv.gz`, and `tsv.gz` also supported.
 - **Export Validated Feed** - Download corrected/normalized feed as gzipped JSONL ready for AI platforms
 - **Modular Architecture** - Easy to add new validators for other AI platforms
 
@@ -73,9 +73,9 @@ The validator automatically recognizes common field name variations:
 
 The validator automatically normalizes:
 
-- **Price**: `63,00 EUR` → `63.00 EUR`
+- **Price**: `63,00 EUR` → `63.00 EUR` (a currency code is required, e.g. `63.00 EUR`, not a bare number)
 - **Availability**: `in stock` → `in_stock`
-- **Return Window**: `14 days` → `14`
+- **Return Deadline**: `14 days` → `14`
 - **Brand**: Empty brands default to title
 
 ## Architecture

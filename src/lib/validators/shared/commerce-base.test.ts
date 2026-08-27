@@ -1,6 +1,13 @@
 import { describe, test, expect } from "bun:test";
 import { z } from "zod";
-import { commerceBaseFields, commerceBaseBooleanFields, booleanSchema } from "./commerce-base";
+import {
+  commerceBaseFields,
+  commerceBaseBooleanFields,
+  booleanSchema,
+  commerceBaseTargetFields,
+  commerceBaseFieldNames,
+  commerceBaseFieldDescriptions,
+} from "./commerce-base";
 
 // commerceBaseBooleanFields is still a hand-maintained list (per Alan's
 // review of PR #1). This test makes the "can't silently drift" comment on
@@ -22,5 +29,43 @@ describe("commerceBaseBooleanFields", () => {
       .sort();
 
     expect(derived).toEqual([...commerceBaseBooleanFields].sort());
+  });
+});
+
+// commerceBaseTargetFields used to be a hand-maintained array that drifted
+// 45 fields behind the schema (30 entries vs 75 real fields - Alan's PR #3
+// finding). Now derived from commerceBaseFields directly - this test makes
+// that actually true, same drift-test pattern as booleanFields above.
+describe("commerceBaseTargetFields", () => {
+  test("has exactly one entry per commerceBaseFields key, in the same set", () => {
+    const targetNames = commerceBaseTargetFields.map((f) => f.name).sort();
+    const schemaNames = [...commerceBaseFieldNames].sort();
+    expect(targetNames).toEqual(schemaNames);
+  });
+
+  test("required flag matches whether the field's Zod schema is wrapped in .optional()", () => {
+    for (const field of commerceBaseTargetFields) {
+      const schema = commerceBaseFields[field.name as keyof typeof commerceBaseFields];
+      const isOptional = schema instanceof z.ZodOptional;
+      expect(field.required).toBe(!isOptional);
+    }
+  });
+
+  test("every field has a non-empty description", () => {
+    for (const field of commerceBaseTargetFields) {
+      expect(field.description.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// A field added to commerceBaseFields without a matching entry in
+// commerceBaseFieldDescriptions silently falls back to its raw field name
+// (see commerce-base.ts) instead of failing loudly - this test is the loud
+// failure.
+describe("commerceBaseFieldDescriptions", () => {
+  test("has exactly one entry per commerceBaseFields key, in the same set", () => {
+    const descriptionNames = Object.keys(commerceBaseFieldDescriptions).sort();
+    const schemaNames = [...commerceBaseFieldNames].sort();
+    expect(descriptionNames).toEqual(schemaNames);
   });
 });

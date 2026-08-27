@@ -9,6 +9,7 @@ import {
   commerceBaseTargetFields,
   commerceBaseBooleanFields,
   commerceBaseTrapAliases,
+  commerceBaseFieldNames,
   createRecordValidators,
 } from "../shared/commerce-base";
 
@@ -44,6 +45,7 @@ export const openAIValidator: ValidatorModule<typeof openAIFeedSchema> = {
   // and is_ads_enabled-trap warnings as the Ads validator.
   booleanFields: commerceBaseBooleanFields,
   trapAliases: commerceBaseTrapAliases,
+  fieldNames: commerceBaseFieldNames,
   validateRecord,
   validateRecordRaw,
 };
