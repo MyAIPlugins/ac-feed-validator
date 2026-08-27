@@ -468,7 +468,7 @@ export default function Home() {
                                     <span className="text-muted-foreground">→</span>
                                     <span className="text-foreground">{issue.problem}</span>
                                     {issue.count > 1 && (
-                                      <span className="text-muted-foreground ml-auto">×{issue.count}</span>
+                                      <span className="text-foreground/80 ml-auto">×{issue.count}</span>
                                     )}
                                   </div>
                                 ))}
@@ -708,11 +708,11 @@ export default function Home() {
                                     {issue.problem}
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    <span className="font-mono bg-muted px-1 rounded">{issue.field}</span>
+                                    <span className="font-mono bg-muted text-foreground px-1 rounded">{issue.field}</span>
                                     {": "}
-                                    <span className="text-muted-foreground/70">{String(issue.originalValue)}</span>
+                                    <span className="text-foreground/80">{String(issue.originalValue)}</span>
                                     {issue.count > 1 && (
-                                      <span className="ml-2 text-muted-foreground">({issue.count}+ occurrences)</span>
+                                      <span className="ml-2 text-foreground/80">({issue.count}+ occurrences)</span>
                                     )}
                                   </p>
                                 </div>
